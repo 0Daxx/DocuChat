@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -17,9 +17,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { LLM_PROVIDERS, testConnection } from "@/lib/llm/providers";
+import { testConnection, fetchAvailableModels, LLM_PROVIDERS } from "@/lib/llm/providers";
+import { loadApiKeys } from "@/lib/storage";
 import type { LLMConfig, LLMProviderType } from "@/lib/types";
-import { CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
 
 interface SettingsDialogProps {
   open: boolean;
@@ -31,28 +32,94 @@ interface SettingsDialogProps {
 export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsDialogProps) {
   const [localConfig, setLocalConfig] = useState<LLMConfig>(config);
   const [connectionStatus, setConnectionStatus] = useState<"idle" | "testing" | "success" | "error">("idle");
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+  const [modelError, setModelError] = useState<string | null>(null);
 
   useEffect(() => {
     setLocalConfig(config);
   }, [config]);
 
-  const handleProviderChange = (providerId: LLMProviderType) => {
+  // When dialog opens, try to fetch models with current config
+  useEffect(() => {
+    if (open) {
+      handleFetchModels(config);
+    }
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleProviderChange = useCallback((providerId: LLMProviderType) => {
     const provider = LLM_PROVIDERS.find(p => p.id === providerId);
     if (provider) {
-      setLocalConfig({
+      // Restore saved API key for this provider if available
+      const isLocal = providerId === "lmstudio" || providerId === "llamacpp";
+      const savedKeys = loadApiKeys();
+      const restoredApiKey = isLocal ? "" : (savedKeys[providerId] || "");
+
+      const newConfig = {
         ...localConfig,
         provider: providerId,
         baseUrl: provider.defaultBaseUrl,
-        model: provider.models[0],
-      });
+        model: "", // Will be populated after fetching models
+        apiKey: restoredApiKey,
+      };
+      setLocalConfig(newConfig);
+      setAvailableModels([]);
+      setConnectionStatus("idle");
+      setModelError(null);
+      // Auto-fetch models for the new provider
+      handleFetchModels(newConfig);
+    }
+  }, [localConfig]);
+
+  const handleFetchModels = async (cfg: LLMConfig) => {
+    setIsLoadingModels(true);
+    setModelError(null);
+    try {
+      const result = await testConnection(cfg);
+      if (result.success) {
+        setAvailableModels(result.models);
+        setConnectionStatus("success");
+        // Auto-select first model if current model is empty or not in list
+        if (result.models.length > 0) {
+          setLocalConfig(prev => {
+            if (!prev.model || !result.models.includes(prev.model)) {
+              return { ...prev, model: result.models[0] };
+            }
+            return prev;
+          });
+        }
+      } else {
+        setAvailableModels([]);
+        setConnectionStatus("error");
+      }
+    } catch (err) {
+      setAvailableModels([]);
+      setConnectionStatus("error");
+      setModelError(err instanceof Error ? err.message : "Connection failed");
+    } finally {
+      setIsLoadingModels(false);
     }
   };
 
   const handleTestConnection = async () => {
     setConnectionStatus("testing");
-    const success = await testConnection(localConfig);
-    setConnectionStatus(success ? "success" : "error");
-    setTimeout(() => setConnectionStatus("idle"), 3000);
+    setModelError(null);
+    try {
+      const models = await fetchAvailableModels(localConfig);
+      if (models.length > 0) {
+        setAvailableModels(models);
+        setConnectionStatus("success");
+        // Auto-select first model if needed
+        if (!localConfig.model || !models.includes(localConfig.model)) {
+          setLocalConfig(prev => ({ ...prev, model: models[0] }));
+        }
+      } else {
+        setConnectionStatus("success"); // Connected but no models listed
+      }
+    } catch (err) {
+      setConnectionStatus("error");
+      setModelError(err instanceof Error ? err.message : "Connection failed");
+    }
   };
 
   const handleSave = () => {
@@ -61,10 +128,11 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
   };
 
   const currentProvider = LLM_PROVIDERS.find(p => p.id === localConfig.provider);
+  const isLocalProvider = localConfig.provider === "lmstudio" || localConfig.provider === "llamacpp";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Settings</DialogTitle>
           <DialogDescription>Configure your LLM provider and model settings.</DialogDescription>
@@ -112,6 +180,9 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
                   value={localConfig.apiKey || ""}
                   onChange={(e) => setLocalConfig({ ...localConfig, apiKey: e.target.value })}
                 />
+                <p className="text-xs text-muted-foreground">
+                  Your API key is stored locally in your browser.
+                </p>
               </div>
             )}
 
@@ -120,24 +191,59 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
               <Label>Base URL</Label>
               <Input
                 value={localConfig.baseUrl}
-                onChange={(e) => setLocalConfig({ ...localConfig, baseUrl: e.target.value })}
+                onChange={(e) => {
+                  setLocalConfig({ ...localConfig, baseUrl: e.target.value });
+                  setConnectionStatus("idle");
+                  setAvailableModels([]);
+                }}
                 placeholder="https://api.provider.com/v1"
               />
             </div>
 
-            {/* Model */}
+            {/* Connection Status & Fetch Models */}
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleTestConnection}
+                disabled={connectionStatus === "testing" || isLoadingModels}
+              >
+                {(connectionStatus === "testing" || isLoadingModels) ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                )}
+                {isLoadingModels ? "Fetching models..." : "Connect & Fetch Models"}
+              </Button>
+              {connectionStatus === "success" && (
+                <span className="text-xs text-green-500 flex items-center gap-1">
+                  <CheckCircle className="h-3 w-3" /> Connected
+                </span>
+              )}
+              {connectionStatus === "error" && (
+                <span className="text-xs text-red-500 flex items-center gap-1">
+                  <XCircle className="h-3 w-3" /> Failed
+                </span>
+              )}
+            </div>
+
+            {modelError && (
+              <p className="text-xs text-red-500">{modelError}</p>
+            )}
+
+            {/* Model Selection */}
             <div className="space-y-2">
               <Label>Model</Label>
-              {currentProvider && currentProvider.models.length > 1 ? (
+              {availableModels.length > 0 ? (
                 <Select
                   value={localConfig.model}
                   onValueChange={(v) => setLocalConfig({ ...localConfig, model: v })}
                 >
                   <SelectTrigger>
-                    <SelectValue />
+                    <SelectValue placeholder="Select a model..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {currentProvider.models.map((model) => (
+                    {availableModels.map((model) => (
                       <SelectItem key={model} value={model}>
                         {model}
                       </SelectItem>
@@ -148,8 +254,19 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
                 <Input
                   value={localConfig.model}
                   onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
-                  placeholder="Model name"
+                  placeholder={isLocalProvider ? "Auto-detected after connecting" : "Model name"}
+                  disabled={isLocalProvider && availableModels.length === 0}
                 />
+              )}
+              {isLocalProvider && availableModels.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Using locally loaded model: <strong>{localConfig.model}</strong>
+                </p>
+              )}
+              {isLocalProvider && availableModels.length === 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Connect to your local server to auto-detect the loaded model.
+                </p>
               )}
             </div>
 
@@ -163,7 +280,7 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
                 step="0.1"
                 value={localConfig.temperature}
                 onChange={(e) => setLocalConfig({ ...localConfig, temperature: parseFloat(e.target.value) })}
-                className="w-full"
+                className="w-full h-2 rounded-lg appearance-none cursor-pointer bg-secondary"
               />
             </div>
 
@@ -175,28 +292,8 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
                 value={localConfig.maxTokens}
                 onChange={(e) => setLocalConfig({ ...localConfig, maxTokens: parseInt(e.target.value) || 4096 })}
                 min={100}
-                max={32000}
+                max={128000}
               />
-            </div>
-
-            {/* Test Connection */}
-            <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={handleTestConnection} disabled={connectionStatus === "testing"}>
-                {connectionStatus === "testing" ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                ) : null}
-                Test Connection
-              </Button>
-              {connectionStatus === "success" && (
-                <span className="text-xs text-green-500 flex items-center gap-1">
-                  <CheckCircle className="h-3 w-3" /> Connected
-                </span>
-              )}
-              {connectionStatus === "error" && (
-                <span className="text-xs text-red-500 flex items-center gap-1">
-                  <XCircle className="h-3 w-3" /> Failed
-                </span>
-              )}
             </div>
           </TabsContent>
 
@@ -204,17 +301,21 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
             <div className="text-sm space-y-2">
               <p><strong>DocuChat MVP</strong></p>
               <p className="text-muted-foreground">
-                An AI-powered document chat service that supports RAG (Retrieval Augmented Generation) 
+                An AI-powered document chat service that supports RAG (Retrieval Augmented Generation)
                 with multiple LLM providers.
               </p>
               <p className="text-muted-foreground">
-                <strong>Supported providers:</strong> Groq, Cerebras, LM Studio, llama.cpp
+                <strong>Remote providers:</strong> Groq, Cerebras (requires API key)
               </p>
               <p className="text-muted-foreground">
-                <strong>Supported formats:</strong> PDF, DOCX, TXT
+                <strong>Local providers:</strong> LM Studio (default port 1234), llama.cpp (default port 8080)
+              </p>
+              <p className="text-muted-foreground">
+                <strong>Supported document formats:</strong> PDF, DOCX, TXT
               </p>
               <p className="text-xs text-muted-foreground mt-4">
                 Built with React, TypeScript, Tailwind CSS, and Shadcn UI.
+                All data including API keys is stored locally in your browser.
               </p>
             </div>
           </TabsContent>
@@ -222,7 +323,9 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
 
         <div className="flex justify-end gap-2 mt-4">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleSave}>Save</Button>
+          <Button onClick={handleSave} disabled={!localConfig.model}>
+            Save
+          </Button>
         </div>
       </DialogContent>
     </Dialog>

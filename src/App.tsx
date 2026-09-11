@@ -185,6 +185,26 @@ export default function App() {
       return;
     }
 
+    // Validate LLM configuration
+    if (!state.llmConfig.model) {
+      const errorMessage: ChatMessage = {
+        id: generateId(),
+        role: "assistant",
+        content: "⚠️ No model configured. Please go to Settings and connect to your LLM provider to select a model.",
+        timestamp: Date.now(),
+      };
+      const updatedSession: ChatSession = {
+        ...activeSession,
+        updatedAt: Date.now(),
+        messages: [...activeSession.messages, { id: generateId(), role: "user", content, timestamp: Date.now() }, errorMessage],
+      };
+      setState(prev => ({
+        ...prev,
+        sessions: prev.sessions.map(s => s.id === updatedSession.id ? updatedSession : s),
+      }));
+      return;
+    }
+
     // Add user message
     const userMessage: ChatMessage = {
       id: generateId(),
