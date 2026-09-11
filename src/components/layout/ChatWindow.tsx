@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Send, Square, FileText } from "lucide-react";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
 import type { ChatMessage, ChunkSource } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -154,13 +155,13 @@ function MessageBubble({ message }: { message: ChatMessage }) {
       <div className={cn("flex-1 space-y-2", isUser && "text-right")}>
         <div
           className={cn(
-            "inline-block rounded-xl px-4 py-2.5 text-sm max-w-full",
+            "inline-block rounded-xl px-4 py-2.5 text-sm max-w-full text-left",
             isUser
               ? "bg-primary text-primary-foreground"
               : "bg-muted"
           )}
         >
-          <div className="whitespace-pre-wrap break-words">{message.content}</div>
+          <MarkdownRenderer content={message.content} isUser={isUser} />
         </div>
         {message.sources && message.sources.length > 0 && (
           <div className="space-y-1">
