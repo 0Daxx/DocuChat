@@ -20,6 +20,8 @@ export interface LLMProviderOption {
 }
 
 // Document types
+export type DocumentOwnerType = "chat" | "project";
+
 export interface Document {
   id: string;
   name: string;
@@ -27,6 +29,8 @@ export interface Document {
   size: number;
   uploadedAt: number;
   chunkCount: number;
+  ownerId: string;        // ID of the chat or project that owns it
+  ownerType: DocumentOwnerType;
 }
 
 export interface DocumentChunk {
@@ -45,7 +49,7 @@ export interface ChatSession {
   createdAt: number;
   updatedAt: number;
   messages: ChatMessage[];
-  documentIds: string[];
+  projectId: string | null;  // null = standalone chat
 }
 
 export interface ChatMessage {
@@ -63,12 +67,24 @@ export interface ChunkSource {
   score: number;
 }
 
+// Project types
+export interface Project {
+  id: string;
+  name: string;
+  createdAt: number;
+  updatedAt: number;
+  chatIds: string[];
+  color: string; // emoji or color indicator
+}
+
 // App state
 export interface AppState {
+  projects: Project[];
   sessions: ChatSession[];
   activeSessionId: string | null;
   documents: Document[];
   chunks: DocumentChunk[];
   llmConfig: LLMConfig;
   sidebarCollapsed: boolean;
+  activeProjectId: string | null; // for sidebar navigation
 }

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ChatWindow } from "@/components/layout/ChatWindow";
 import { SettingsDialog } from "@/components/settings/SettingsDialog";
-import { DocumentPanel } from "@/components/documents/DocumentPanel";
 import {
   loadState,
   saveState,
@@ -12,6 +11,8 @@ import {
   saveChunks,
   saveLLMConfig,
   saveSidebarState,
+  saveProject,
+  deleteProject,
 } from "@/lib/storage";
 import { parseDocument } from "@/lib/documents/parser";
 import { chunkText } from "@/lib/documents/chunker";
@@ -26,23 +27,24 @@ import type {
   DocumentChunk,
   LLMConfig,
   ChunkSource,
+  Project,
+  DocumentOwnerType,
 } from "@/lib/types";
+
+const PROJECT_COLORS = ["📁", "📂", "🗂️", "📚", "💼", "🔬", "🎯", "⚡", "🌟", "🔧"];
 
 export default function App() {
   const [state, setState] = useState<AppState>(loadState);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [documentsOpen, setDocumentsOpen] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
-  const vectorStoreBuilt = useRef(false);
 
   // Rebuild vector store when chunks change
   useEffect(() => {
     if (state.chunks.length > 0) {
       vectorStore.buildIndex(state.chunks);
-      vectorStoreBuilt.current = true;
     }
   }, [state.chunks]);
 
@@ -53,41 +55,194 @@ export default function App() {
 
   const activeSession = state.sessions.find(s => s.id === state.activeSessionId) || null;
 
+  // Get documents accessible to a chat (chat's own + project's if in project)
+  const getChatDocumentIds = useCallback((session: ChatSession): string[] => {
+    const chatDocs = state.documents
+      .filter(d => d.ownerType === "chat" && d.ownerId === session.id)
+      .map(d => d.id);
+
+    if (session.projectId) {
+      const projectDocs = state.documents
+        .filter(d => d.ownerType === "project" && d.ownerId === session.projectId)
+        .map(d => d.id);
+      return [...chatDocs, ...projectDocs];
+    }
+    return chatDocs;
+  }, [state.documents]);
+
+  // Get documents for a specific owner
+  const getDocumentsForOwner = useCallback((ownerId: string, ownerType: DocumentOwnerType): Document[] => {
+    return state.documents.filter(d => d.ownerId === ownerId && d.ownerType === ownerType);
+  }, [state.documents]);
+
   // Create new chat session
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback((projectId?: string) => {
     const newSession: ChatSession = {
       id: generateId(),
       title: "New chat",
       createdAt: Date.now(),
       updatedAt: Date.now(),
       messages: [],
-      documentIds: state.documents.map(d => d.id),
+      projectId: projectId || null,
+    };
+
+    setState(prev => {
+      let projects = prev.projects;
+      if (projectId) {
+        projects = prev.projects.map(p =>
+          p.id === projectId
+            ? { ...p, chatIds: [...p.chatIds, newSession.id], updatedAt: Date.now() }
+            : p
+        );
+      }
+      return {
+        ...prev,
+        sessions: [newSession, ...prev.sessions],
+        activeSessionId: newSession.id,
+        projects,
+      };
+    });
+  }, []);
+
+  // Create new project
+  const handleNewProject = useCallback(() => {
+    const colorIndex = state.projects.length % PROJECT_COLORS.length;
+    const newProject: Project = {
+      id: generateId(),
+      name: `Project ${state.projects.length + 1}`,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      chatIds: [],
+      color: PROJECT_COLORS[colorIndex],
     };
     setState(prev => ({
       ...prev,
-      sessions: [newSession, ...prev.sessions],
-      activeSessionId: newSession.id,
+      projects: [newProject, ...prev.projects],
+      activeProjectId: newProject.id,
     }));
-  }, [state.documents]);
+  }, [state.projects.length]);
+
+  // Rename project
+  const handleRenameProject = useCallback((projectId: string, name: string) => {
+    setState(prev => ({
+      ...prev,
+      projects: prev.projects.map(p =>
+        p.id === projectId ? { ...p, name, updatedAt: Date.now() } : p
+      ),
+    }));
+  }, []);
+
+  // Delete project
+  const handleDeleteProject = useCallback((projectId: string) => {
+    deleteProject(projectId);
+    setState(prev => {
+      const projects = prev.projects.filter(p => p.id !== projectId);
+      // Remove project-owned documents and chunks
+      const documents = prev.documents.filter(d => !(d.ownerType === "project" && d.ownerId === projectId));
+      const chunks = prev.chunks.filter(c => {
+        const doc = documents.find(d => d.id === c.documentId);
+        return doc !== undefined;
+      });
+      // Detach chats
+      const sessions = prev.sessions.map(s =>
+        s.projectId === projectId ? { ...s, projectId: null } : s
+      );
+      return {
+        ...prev,
+        projects,
+        documents,
+        chunks,
+        sessions,
+        activeProjectId: prev.activeProjectId === projectId ? null : prev.activeProjectId,
+      };
+    });
+    // Rebuild vector store
+    setTimeout(() => {
+      const currentState = loadState();
+      if (currentState.chunks.length > 0) {
+        vectorStore.buildIndex(currentState.chunks);
+      }
+    }, 0);
+  }, []);
+
+  // Attach chat to project
+  const handleAttachChatToProject = useCallback((chatId: string, projectId: string) => {
+    setState(prev => {
+      // Remove from any existing project
+      const projects = prev.projects.map(p => ({
+        ...p,
+        chatIds: p.chatIds.filter(id => id !== chatId),
+      }));
+      // Add to new project
+      const updatedProjects = projects.map(p =>
+        p.id === projectId
+          ? { ...p, chatIds: [...p.chatIds, chatId], updatedAt: Date.now() }
+          : p
+      );
+      // Update session
+      const sessions = prev.sessions.map(s =>
+        s.id === chatId ? { ...s, projectId } : s
+      );
+      return { ...prev, projects: updatedProjects, sessions };
+    });
+  }, []);
+
+  // Detach chat from project
+  const handleDetachChatFromProject = useCallback((chatId: string) => {
+    setState(prev => {
+      const projects = prev.projects.map(p => ({
+        ...p,
+        chatIds: p.chatIds.filter(id => id !== chatId),
+      }));
+      const sessions = prev.sessions.map(s =>
+        s.id === chatId ? { ...s, projectId: null } : s
+      );
+      return { ...prev, projects, sessions };
+    });
+  }, []);
 
   // Select session
   const handleSelectSession = useCallback((id: string) => {
     setState(prev => ({ ...prev, activeSessionId: id }));
   }, []);
 
+  // Select project (for sidebar navigation)
+  const handleSelectProject = useCallback((id: string | null) => {
+    setState(prev => ({ ...prev, activeProjectId: id }));
+  }, []);
+
   // Delete session
   const handleDeleteSession = useCallback((id: string) => {
-    deleteSession(id);
     setState(prev => {
+      const projects = prev.projects.map(p => ({
+        ...p,
+        chatIds: p.chatIds.filter(cid => cid !== id),
+      }));
       const sessions = prev.sessions.filter(s => s.id !== id);
+      // Remove chat-owned documents and chunks
+      const documents = prev.documents.filter(d => !(d.ownerType === "chat" && d.ownerId === id));
+      const chunks = prev.chunks.filter(c => {
+        const doc = documents.find(d => d.id === c.documentId);
+        return doc !== undefined;
+      });
       return {
         ...prev,
+        projects,
         sessions,
+        documents,
+        chunks,
         activeSessionId: prev.activeSessionId === id
           ? (sessions.length > 0 ? sessions[0].id : null)
           : prev.activeSessionId,
       };
     });
+    // Rebuild vector store
+    setTimeout(() => {
+      const currentState = loadState();
+      if (currentState.chunks.length > 0) {
+        vectorStore.buildIndex(currentState.chunks);
+      }
+    }, 0);
   }, []);
 
   // Toggle sidebar
@@ -105,8 +260,8 @@ export default function App() {
     setState(prev => ({ ...prev, llmConfig: config }));
   }, []);
 
-  // Upload documents
-  const handleUploadDocuments = useCallback(async (files: FileList) => {
+  // Upload documents for a specific owner (chat or project)
+  const handleUploadDocuments = useCallback(async (files: FileList, ownerId: string, ownerType: DocumentOwnerType) => {
     setIsProcessing(true);
     setProcessingError(null);
 
@@ -120,7 +275,6 @@ export default function App() {
           throw new Error(`Unsupported file type: .${ext}. Please upload PDF, DOCX, or TXT files.`);
         }
 
-        // Parse document
         const text = await parseDocument(file);
         if (!text.trim()) {
           throw new Error(`No text could be extracted from ${file.name}`);
@@ -136,6 +290,8 @@ export default function App() {
           size: file.size,
           uploadedAt: Date.now(),
           chunkCount: chunks.length,
+          ownerId,
+          ownerType,
         };
 
         newDocuments.push(doc);
@@ -169,7 +325,6 @@ export default function App() {
       saveDocuments(documents);
       saveChunks(chunks);
 
-      // Rebuild vector store
       if (chunks.length > 0) {
         vectorStore.buildIndex(chunks);
       }
@@ -213,11 +368,8 @@ export default function App() {
       timestamp: Date.now(),
     };
 
-    // Retrieve relevant chunks
-    const documentIds = activeSession.documentIds.length > 0
-      ? activeSession.documentIds
-      : state.documents.map(d => d.id);
-
+    // Retrieve relevant chunks from accessible documents
+    const documentIds = getChatDocumentIds(activeSession);
     const sources: ChunkSource[] = vectorStore.search(content, 5, documentIds);
 
     // Create assistant message placeholder
@@ -248,7 +400,6 @@ export default function App() {
     abortControllerRef.current = abortController;
 
     try {
-      // Build conversation history (last N messages for context)
       const historyMessages = activeSession.messages
         .filter(m => m.role !== "system")
         .slice(-10)
@@ -264,7 +415,6 @@ export default function App() {
         sources,
         (chunk) => {
           fullContent += chunk;
-          // Update the assistant message with streamed content
           setState(prev => ({
             ...prev,
             sessions: prev.sessions.map(s => {
@@ -296,7 +446,6 @@ export default function App() {
       }));
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        // User cancelled
         const finalSession: ChatSession = {
           ...updatedSession,
           messages: updatedSession.messages.slice(0, -1).concat({
@@ -310,7 +459,6 @@ export default function App() {
           sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s),
         }));
       } else {
-        // Error - update message with error
         const errorMessage = error instanceof Error ? error.message : "An error occurred";
         const finalSession: ChatSession = {
           ...updatedSession,
@@ -329,7 +477,7 @@ export default function App() {
       setIsStreaming(false);
       abortControllerRef.current = null;
     }
-  }, [activeSession, state.llmConfig, state.documents, handleNewChat]);
+  }, [activeSession, state.llmConfig, getChatDocumentIds, handleNewChat]);
 
   // Stop streaming
   const handleStopStreaming = useCallback(() => {
@@ -338,36 +486,64 @@ export default function App() {
 
   // Create initial session if none exists
   useEffect(() => {
-    if (state.sessions.length === 0) {
+    if (state.sessions.length === 0 && state.projects.length === 0) {
       handleNewChat();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Get active project
+  const activeProject = activeSession?.projectId
+    ? state.projects.find(p => p.id === activeSession.projectId) || null
+    : null;
+
+  // Get documents accessible in current chat context
+  const accessibleDocuments = activeSession
+    ? state.documents.filter(d => {
+        if (d.ownerType === "chat" && d.ownerId === activeSession.id) return true;
+        if (d.ownerType === "project" && activeSession.projectId && d.ownerId === activeSession.projectId) return true;
+        return false;
+      })
+    : [];
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
       {/* Sidebar */}
       <Sidebar
+        projects={state.projects}
         sessions={state.sessions}
         activeSessionId={state.activeSessionId}
+        activeProjectId={state.activeProjectId}
         collapsed={state.sidebarCollapsed}
         onSelectSession={handleSelectSession}
+        onSelectProject={handleSelectProject}
         onNewChat={handleNewChat}
+        onNewProject={handleNewProject}
+        onRenameProject={handleRenameProject}
+        onDeleteProject={handleDeleteProject}
         onDeleteSession={handleDeleteSession}
+        onAttachChat={handleAttachChatToProject}
+        onDetachChat={handleDetachChatFromProject}
         onToggleCollapse={handleToggleSidebar}
         onOpenSettings={() => setSettingsOpen(true)}
-        onOpenDocuments={() => setDocumentsOpen(true)}
       />
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
         {activeSession ? (
           <ChatWindow
-            messages={activeSession.messages}
+            session={activeSession}
+            project={activeProject}
+            documents={accessibleDocuments}
             isStreaming={isStreaming}
+            isProcessing={isProcessing}
+            processingError={processingError}
             onSendMessage={handleSendMessage}
             onStopStreaming={handleStopStreaming}
-            sessionTitle={activeSession.title}
-            documentCount={state.documents.length}
+            onUploadDocuments={handleUploadDocuments}
+            onDeleteDocument={handleDeleteDocument}
+            projects={state.projects}
+            onAttachToProject={handleAttachChatToProject}
+            onDetachFromProject={handleDetachChatFromProject}
           />
         ) : (
           <div className="flex-1 flex items-center justify-center">
@@ -387,17 +563,6 @@ export default function App() {
         onOpenChange={setSettingsOpen}
         config={state.llmConfig}
         onSave={handleSaveLLMConfig}
-      />
-
-      {/* Document Panel */}
-      <DocumentPanel
-        open={documentsOpen}
-        onOpenChange={setDocumentsOpen}
-        documents={state.documents}
-        onUpload={handleUploadDocuments}
-        onDelete={handleDeleteDocument}
-        isProcessing={isProcessing}
-        processingError={processingError}
       />
     </div>
   );

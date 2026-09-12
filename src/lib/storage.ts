@@ -1,4 +1,4 @@
-import type { AppState, ChatSession, Document, DocumentChunk, LLMConfig } from "./types";
+import type { AppState, ChatSession, Document, DocumentChunk, LLMConfig, Project } from "./types";
 
 const STORAGE_KEY = "docuchat_state";
 const API_KEY_STORAGE_KEY = "docuchat_api_keys";
@@ -12,12 +12,14 @@ const DEFAULT_LLM_CONFIG: LLMConfig = {
 };
 
 const DEFAULT_STATE: AppState = {
+  projects: [],
   sessions: [],
   activeSessionId: null,
   documents: [],
   chunks: [],
   llmConfig: DEFAULT_LLM_CONFIG,
   sidebarCollapsed: false,
+  activeProjectId: null,
 };
 
 // Separate API key storage for security/clarity
@@ -98,7 +100,14 @@ export function saveSession(session: ChatSession): void {
 
 export function deleteSession(sessionId: string): void {
   const state = loadState();
+  // Remove session from any project
+  state.projects = state.projects.map(p => ({
+    ...p,
+    chatIds: p.chatIds.filter(id => id !== sessionId),
+  }));
   state.sessions = state.sessions.filter(s => s.id !== sessionId);
+  // Remove chat-owned documents
+  state.documents = state.documents.filter(d => !(d.ownerType === "chat" && d.ownerId === sessionId));
   if (state.activeSessionId === sessionId) {
     state.activeSessionId = state.sessions.length > 0 ? state.sessions[0].id : null;
   }
@@ -126,5 +135,31 @@ export function saveLLMConfig(config: LLMConfig): void {
 export function saveSidebarState(collapsed: boolean): void {
   const state = loadState();
   state.sidebarCollapsed = collapsed;
+  saveState(state);
+}
+
+export function saveProject(project: Project): void {
+  const state = loadState();
+  const idx = state.projects.findIndex(p => p.id === project.id);
+  if (idx >= 0) {
+    state.projects[idx] = project;
+  } else {
+    state.projects.push(project);
+  }
+  saveState(state);
+}
+
+export function deleteProject(projectId: string): void {
+  const state = loadState();
+  // Detach all chats from the project (they become standalone)
+  state.sessions = state.sessions.map(s =>
+    s.projectId === projectId ? { ...s, projectId: null } : s
+  );
+  state.projects = state.projects.filter(p => p.id !== projectId);
+  // Remove project-owned documents
+  state.documents = state.documents.filter(d => !(d.ownerType === "project" && d.ownerId === projectId));
+  if (state.activeProjectId === projectId) {
+    state.activeProjectId = null;
+  }
   saveState(state);
 }
