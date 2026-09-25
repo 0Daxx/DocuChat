@@ -716,6 +716,219 @@ VITE_SUPABASE_ANON_KEY = (future)
 
 ---
 
+---
+
+## ✅ Implementation Complete - Settings & Message Actions
+
+### What Was Implemented
+
+#### 1. Full Settings Page (`/settings`)
+- **Sidebar navigation** with 8 sections: General, Usage & Billing, API, Models, Chats, Personalisation, Account, About
+- **Back button** returns to chat screen
+- **Responsive layout** with proper sidebar + content areas
+- **Accessible navigation** with keyboard support
+
+#### 2. General Settings
+- Theme selection (light/dark/system)
+- Chat behavior toggles (show sources, stream responses, auto-save)
+- All preferences persisted to localStorage
+
+#### 3. Usage & Billing
+- Displays current plan (Demo Mode indicator)
+- Usage statistics (placeholder for future backend)
+- Billing management (disabled in demo mode with clear messaging)
+
+#### 4. API Key Management
+- **Multiple keys per provider** (Groq, Cerebras)
+- **Add/Edit/Delete** API keys with confirmation
+- **Preferred key** selection (star icon)
+- **Key masking** (only shows last 4 characters)
+- **Test connection** button for each key
+- **Fallback behavior** configuration (enable/disable, max retries)
+- **Security**: Keys stored in separate localStorage key, never logged, never exposed in UI
+
+#### 5. Models Registry
+- Centralized model metadata in `src/lib/llm/modelRegistry.ts`
+- Displays models by provider with:
+  - Name, family, context window
+  - Capabilities (badges)
+  - Recommended use cases
+  - Availability status
+- Extensible for adding new providers
+
+#### 6. Chat Management
+- **Export** all chats/projects to JSON
+- **Import** with validation (checks format, deduplicates)
+- **Archive** all chats (moves to archived section)
+- **Delete all** with double confirmation
+- Progress states and error handling
+
+#### 7. Personalisation
+- Custom system prompt
+- Default temperature slider
+- Default max tokens
+- All settings applied to new chats
+
+#### 8. Account Settings
+- View/edit profile (name, email)
+- Password change (disabled in demo mode with explanation)
+- Logout functionality
+- Delete account with double confirmation and data wipe
+
+#### 9. About Page
+- App version and build info
+- Technology stack badges
+- Supported providers list
+- Links to documentation
+
+#### 10. Message Actions (Chat Window)
+- **Copy button** on assistant messages
+  - Copies clean text to clipboard
+  - Shows "Copied" feedback for 2 seconds
+  - Handles clipboard permission errors
+- **Regenerate button** on assistant messages
+  - Finds original user message
+  - Re-sends to generate new response
+  - Preserves original until new response succeeds
+  - Only shows when not streaming
+
+#### 11. UX & Accessibility
+- All controls have accessible labels
+- Icons have tooltips
+- Keyboard navigation works
+- Focus states visible
+- Destructive actions clearly identified (red color, confirmation dialogs)
+- Loading, empty, success, and error states implemented
+- Responsive on mobile and desktop
+- Existing visual styles preserved
+
+### Files Changed
+
+**New Files:**
+- `src/pages/SettingsPage.tsx` - Full settings page with all 8 sections
+- `src/lib/llm/modelRegistry.ts` - Centralized model metadata
+
+**Modified Files:**
+- `src/lib/types.ts` - Added APIKey, APIKeyConfig, UserPreferences, ModelInfo types
+- `src/lib/storage.ts` - Added API key management functions, preferences support
+- `src/components/settings/SettingsDialog.tsx` - Updated to use new API key system
+- `src/components/layout/ChatWindow.tsx` - Added copy/regenerate actions
+- `src/components/layout/Sidebar.tsx` - Settings button now navigates to /settings
+- `src/App.tsx` - Added /settings route
+- `notes.md` - This documentation
+
+### Data Model Changes
+
+**New Types:**
+```typescript
+interface APIKey {
+  id: string;
+  provider: LLMProviderType;
+  name: string;
+  key: string;
+  isPreferred: boolean;
+  createdAt: number;
+  lastUsed?: number;
+  isValid?: boolean;
+}
+
+interface APIKeyConfig {
+  keys: APIKey[];
+  fallbackEnabled: boolean;
+  maxRetries: number;
+}
+
+interface UserPreferences {
+  systemPrompt: string;
+  defaultTemperature: number;
+  defaultMaxTokens: number;
+  showSources: boolean;
+  streamResponses: boolean;
+  autoSaveChats: boolean;
+}
+
+interface ModelInfo {
+  id: string;
+  name: string;
+  provider: LLMProviderType;
+  family: string;
+  contextWindow?: number;
+  capabilities: string[];
+  recommendedFor: string[];
+  available: boolean;
+}
+```
+
+**AppState Extended:**
+- Added `archivedSessions: ChatSession[]`
+- Added `apiKeyConfig: APIKeyConfig`
+- Added `preferences: UserPreferences`
+
+### Security Considerations
+
+1. **API Keys Storage**
+   - Stored in separate localStorage key (`docuchat_api_keys_v2`)
+   - Never included in main state snapshots
+   - Masked in UI (only last 4 chars shown)
+   - Never logged to console
+   - Never included in error messages or URLs
+
+2. **Limitations**
+   - Client-side storage is not truly secure
+   - For production: requires backend/Supabase for secure secret storage
+   - Current implementation is acceptable for MVP/demo mode
+   - Documented in QWEN.md for future migration
+
+3. **Fallback Behavior**
+   - Tries preferred key first
+   - Detects retryable failures (rate limits, 5xx errors)
+   - Tries next eligible key
+   - Max retries configurable (default: 3)
+   - Does not retry on auth errors (401, 403)
+   - Returns user-friendly error if all keys fail
+
+### Test Commands
+
+```bash
+# Build
+npm run build
+
+# Dev server
+npm run dev
+
+# Type check
+npx tsc --noEmit
+```
+
+### Remaining Limitations / Backend Work Required
+
+1. **Secure API Key Storage**
+   - Current: localStorage (client-side)
+   - Required for production: Server-side encryption + database
+   - Migration path: Supabase with RLS policies
+
+2. **Usage Tracking**
+   - Current: Not implemented
+   - Required: Backend API call logging
+   - Migration path: Supabase functions + database
+
+3. **Billing Integration**
+   - Current: Placeholder UI
+   - Required: Stripe/payment provider integration
+   - Migration path: Stripe + webhook handlers
+
+4. **Account Management**
+   - Current: Demo mode with localStorage
+   - Required: Supabase Auth integration
+   - Migration path: Already planned in AuthContext
+
+5. **Chat Sync**
+   - Current: localStorage only
+   - Required: Real-time sync across devices
+   - Migration path: Supabase Realtime
+
+---
+
 **Last Updated**: 2026
-**Version**: 1.0.0
-**Status**: Planning Phase
+**Version**: 1.1.0
+**Status**: Settings & Message Actions Complete

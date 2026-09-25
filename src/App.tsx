@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { HomePage } from "@/pages/HomePage";
 import { SignInPage } from "@/pages/SignInPage";
 import { SignUpPage } from "@/pages/SignUpPage";
+import { SettingsPage } from "@/pages/SettingsPage";
 import { ProtectedRoute } from "@/components/auth/ProtectedRoute";
 import { DocuChatApp } from "@/components/DocuChatApp";
 import { Toaster } from "@/components/ui/sonner";
@@ -60,6 +61,14 @@ function App() {
               element={
                 <ProtectedRoute>
                   <DocuChatApp />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <SettingsPage />
                 </ProtectedRoute>
               }
             />

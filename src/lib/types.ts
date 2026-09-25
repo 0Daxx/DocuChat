@@ -19,6 +19,46 @@ export interface LLMProviderOption {
   requiresApiKey: boolean;
 }
 
+// API Key Management
+export interface APIKey {
+  id: string;
+  provider: LLMProviderType;
+  name: string;
+  key: string; // Stored securely, never fully displayed
+  isPreferred: boolean;
+  createdAt: number;
+  lastUsed?: number;
+  isValid?: boolean;
+}
+
+export interface APIKeyConfig {
+  keys: APIKey[];
+  fallbackEnabled: boolean;
+  maxRetries: number;
+}
+
+// User Preferences
+export interface UserPreferences {
+  systemPrompt: string;
+  defaultTemperature: number;
+  defaultMaxTokens: number;
+  showSources: boolean;
+  streamResponses: boolean;
+  autoSaveChats: boolean;
+}
+
+// Model Registry
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: LLMProviderType;
+  family: string;
+  contextWindow?: number;
+  capabilities: string[];
+  recommendedFor: string[];
+  available: boolean;
+}
+
 // Document types
 export type DocumentOwnerType = "chat" | "project";
 
@@ -81,10 +121,13 @@ export interface Project {
 export interface AppState {
   projects: Project[];
   sessions: ChatSession[];
+  archivedSessions: ChatSession[];
   activeSessionId: string | null;
   documents: Document[];
   chunks: DocumentChunk[];
   llmConfig: LLMConfig;
+  apiKeyConfig: APIKeyConfig;
+  preferences: UserPreferences;
   sidebarCollapsed: boolean;
-  activeProjectId: string | null; // for sidebar navigation
+  activeProjectId: string | null;
 }
