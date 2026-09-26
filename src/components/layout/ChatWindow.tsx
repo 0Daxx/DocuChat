@@ -13,6 +13,9 @@ import {
   Unlink,
   Upload,
   Trash2,
+  CheckCircle,
+  Copy,
+  RefreshCw,
 } from "lucide-react";
 import type {
   ChatSession,
@@ -342,8 +345,23 @@ export function ChatWindow({
               </p>
             </div>
           )}
-          {session.messages.map((message) => (
-            <MessageBubble key={message.id} message={message} />
+          {session.messages.map((message, idx) => (
+            <MessageBubble
+              key={message.id}
+              message={message}
+              onRegenerate={
+                message.role === "assistant" && !isStreaming
+                  ? () => {
+                      // Find the user message before this assistant message
+                      const prevUserMsg = session.messages.slice(0, idx).reverse().find(m => m.role === "user");
+                      if (prevUserMsg) {
+                        // Remove this assistant message and regenerate
+                        onSendMessage(`[REGENERATE:${message.id}]${prevUserMsg.content}`);
+                      }
+                    }
+                  : undefined
+              }
+            />
           ))}
           {isStreaming && session.messages[session.messages.length - 1]?.role === "assistant" && (
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
@@ -515,11 +533,23 @@ function DocItem({
 }
 
 // Message bubble component
-function MessageBubble({ message }: { message: ChatMessage }) {
+function MessageBubble({ message, onRegenerate }: { message: ChatMessage; onRegenerate?: (messageId: string) => void }) {
   const isUser = message.role === "user";
-
+  const isAssistant = message.role === "assistant";
+  const [copied, setCopied] = useState(false);
+ 
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy:", err);
+    }
+  };
+ 
   return (
-    <div className={cn("flex gap-3", isUser && "flex-row-reverse")}>
+    <div className={cn("flex gap-3 group", isUser && "flex-row-reverse")}>
       <div
         className={cn(
           "w-7 h-7 rounded-full flex items-center justify-center shrink-0 text-xs font-medium",
@@ -541,13 +571,46 @@ function MessageBubble({ message }: { message: ChatMessage }) {
         >
           <MarkdownRenderer content={message.content} isUser={isUser} />
         </div>
+        {/* Message Actions */}
+        {isAssistant && (
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={handleCopy}
+            >
+              {copied ? (
+                <>
+                  <CheckCircle className="h-3 w-3 mr-1" />
+                  Copied
+                </>
+              ) : (
+                <>
+                  <Copy className="h-3 w-3 mr-1" />
+                  Copy
+                </>
+              )}
+            </Button>
+            {onRegenerate && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => onRegenerate(message.id)}
+              >
+                <RefreshCw className="h-3 w-3 mr-1" />
+                Regenerate
+              </Button>
+            )}
+          </div>
+        )}
         {message.sources && message.sources.length > 0 && (
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground font-medium">Sources:</p>
             {message.sources.map((source, idx) => (
               <SourceCard key={idx} source={source} />
-            ))}
-          </div>
+            ))}          </div>
         )}
       </div>
     </div>

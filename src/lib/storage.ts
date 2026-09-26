@@ -1,7 +1,7 @@
-import type { AppState, ChatSession, Document, DocumentChunk, LLMConfig, Project } from "./types";
+import type { AppState, ChatSession, Document, DocumentChunk, LLMConfig, Project, APIKey, APIKeyConfig, UserPreferences } from "./types";
 
 const STORAGE_KEY = "docuchat_state";
-const API_KEY_STORAGE_KEY = "docuchat_api_keys";
+const API_KEY_STORAGE_KEY = "docuchat_api_keys_v2";
 
 const DEFAULT_LLM_CONFIG: LLMConfig = {
   provider: "groq",
@@ -11,34 +11,73 @@ const DEFAULT_LLM_CONFIG: LLMConfig = {
   maxTokens: 4096,
 };
 
+const DEFAULT_API_KEY_CONFIG: APIKeyConfig = {
+  keys: [],
+  fallbackEnabled: true,
+  maxRetries: 3,
+};
+
+const DEFAULT_PREFERENCES: UserPreferences = {
+  systemPrompt: "",
+  defaultTemperature: 0.7,
+  defaultMaxTokens: 4096,
+  showSources: true,
+  streamResponses: true,
+  autoSaveChats: true,
+};
+
 const DEFAULT_STATE: AppState = {
   projects: [],
   sessions: [],
+  archivedSessions: [],
   activeSessionId: null,
   documents: [],
   chunks: [],
   llmConfig: DEFAULT_LLM_CONFIG,
+  apiKeyConfig: DEFAULT_API_KEY_CONFIG,
+  preferences: DEFAULT_PREFERENCES,
   sidebarCollapsed: false,
   activeProjectId: null,
 };
 
-// Separate API key storage for security/clarity
-export function loadApiKeys(): Record<string, string> {
+// API Key Management - Multiple keys per provider with fallback support
+export function loadAPIKeyConfig(): APIKeyConfig {
   try {
     const stored = localStorage.getItem(API_KEY_STORAGE_KEY);
     if (stored) return JSON.parse(stored);
   } catch (e) {
-    console.error("Failed to load API keys:", e);
+    console.error("Failed to load API key config:", e);
   }
-  return {};
+  return { ...DEFAULT_API_KEY_CONFIG };
 }
 
-function saveApiKeys(keys: Record<string, string>): void {
+export function saveAPIKeyConfig(config: APIKeyConfig): void {
   try {
-    localStorage.setItem(API_KEY_STORAGE_KEY, JSON.stringify(keys));
+    // Never log API keys
+    localStorage.setItem(API_KEY_STORAGE_KEY, JSON.stringify(config));
   } catch (e) {
-    console.error("Failed to save API keys:", e);
+    console.error("Failed to save API key config:", e);
   }
+}
+
+// Get the preferred key for a provider, or first available
+export function getPreferredKey(provider: string): APIKey | null {
+  const config = loadAPIKeyConfig();
+  const providerKeys = config.keys.filter(k => k.provider === provider);
+  if (providerKeys.length === 0) return null;
+  return providerKeys.find(k => k.isPreferred) || providerKeys[0];
+}
+
+// Get all keys for a provider (for fallback)
+export function getKeysForProvider(provider: string): APIKey[] {
+  const config = loadAPIKeyConfig();
+  return config.keys.filter(k => k.provider === provider);
+}
+
+// Mask API key for display (show only last 4 chars)
+export function maskApiKey(key: string): string {
+  if (key.length <= 8) return "••••••••";
+  return `••••••••${key.slice(-4)}`;
 }
 
 export function loadState(): AppState {
@@ -48,12 +87,12 @@ export function loadState(): AppState {
       const parsed = JSON.parse(stored);
       const state = { ...DEFAULT_STATE, ...parsed };
 
-      // Restore API key from separate storage
-      const apiKeys = loadApiKeys();
-      if (apiKeys[state.llmConfig.provider]) {
+      // Restore preferred API key for current provider
+      const preferredKey = getPreferredKey(state.llmConfig.provider);
+      if (preferredKey) {
         state.llmConfig = {
           ...state.llmConfig,
-          apiKey: apiKeys[state.llmConfig.provider],
+          apiKey: preferredKey.key,
         };
       }
 
@@ -75,13 +114,6 @@ export function saveState(state: AppState): void {
       llmConfig: { ...state.llmConfig, apiKey: undefined },
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-
-    // Save API key separately
-    if (state.llmConfig.apiKey) {
-      const apiKeys = loadApiKeys();
-      apiKeys[state.llmConfig.provider] = state.llmConfig.apiKey;
-      saveApiKeys(apiKeys);
-    }
   } catch (e) {
     console.error("Failed to save state to localStorage:", e);
   }

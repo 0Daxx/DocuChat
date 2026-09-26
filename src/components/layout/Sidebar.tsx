@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
@@ -65,6 +66,7 @@ export function Sidebar({
   onToggleCollapse,
   onOpenSettings,
 }: SidebarProps) {
+  const navigate = useNavigate();
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
   const [editingProjectId, setEditingProjectId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
@@ -392,7 +394,7 @@ export function Sidebar({
                 variant="ghost"
                 className={cn("w-full justify-start gap-2", collapsed && "justify-center px-0")}
                 size={collapsed ? "icon" : "sm"}
-                onClick={onOpenSettings}
+                onClick={() => navigate("/settings")}
               >
                 <Settings className="h-4 w-4" />
                 {!collapsed && <span className="text-xs">Settings</span>}

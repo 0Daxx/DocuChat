@@ -18,7 +18,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { testConnection, fetchAvailableModels, LLM_PROVIDERS } from "@/lib/llm/providers";
-import { loadApiKeys } from "@/lib/storage";
+import { getPreferredKey } from "@/lib/storage";
 import type { LLMConfig, LLMProviderType } from "@/lib/types";
 import { CheckCircle, XCircle, Loader2, RefreshCw } from "lucide-react";
 
@@ -52,8 +52,8 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
     if (provider) {
       // Restore saved API key for this provider if available
       const isLocal = providerId === "lmstudio" || providerId === "llamacpp";
-      const savedKeys = loadApiKeys();
-      const restoredApiKey = isLocal ? "" : (savedKeys[providerId] || "");
+      const preferredKey = getPreferredKey(providerId);
+      const restoredApiKey = isLocal ? "" : (preferredKey?.key || "");
 
       const newConfig = {
         ...localConfig,
