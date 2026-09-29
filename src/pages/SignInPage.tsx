@@ -33,6 +33,11 @@ export function SignInPage() {
     }
   };
 
+  const handleDemoLogin = () => {
+    setEmail("demo@docuchat.ai");
+    setPassword("demo1234");
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
@@ -91,6 +96,15 @@ export function SignInPage() {
                 <p className="font-medium mb-1">Demo credentials:</p>
                 <p>Email: demo@docuchat.ai</p>
                 <p>Password: demo1234</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="mt-2 w-full"
+                  onClick={handleDemoLogin}
+                >
+                  Use Demo Credentials
+                </Button>
               </div>
             )}
           </CardContent>
