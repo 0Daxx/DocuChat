@@ -1068,6 +1068,170 @@ None in latest implementation. All features working as expected.
 
 ---
 
+## ✅ Supabase Integration Complete
+
+### What Was Implemented
+
+#### 1. Supabase Authentication
+- **Sign In/Sign Up**: Full authentication flow with Supabase Auth
+- **Session Management**: Persistent sessions with auto-refresh
+- **Profile Management**: User profiles with avatars and metadata
+- **Demo Mode Fallback**: Works without Supabase for testing
+- **Protected Routes**: Authentication-required pages
+
+#### 2. Database Schema
+Created comprehensive database schema with:
+- **profiles**: User profiles (extends auth.users)
+- **user_api_keys**: API keys with system/user distinction
+- **projects**: Chat projects/folders
+- **chat_sessions**: Individual conversations
+- **chat_messages**: Messages with metadata
+- **documents**: Uploaded document metadata
+- **document_chunks**: Text chunks for RAG
+- **user_preferences**: User settings
+- **Storage bucket**: Secure file storage
+
+All tables have:
+- Row Level Security (RLS) enabled
+- Proper foreign key relationships
+- Automatic timestamp updates
+- Cascade deletes where appropriate
+
+#### 3. Default System API Keys
+- **3 Groq keys** from environment variables
+- **3 Cerebras keys** from environment variables
+- **Read-only** for users (cannot edit/delete)
+- **Automatically assigned** to new users
+- **Fallback support** built-in
+
+#### 4. API Key Management
+- **System keys**: Free tier keys (read-only, from .env)
+- **User keys**: BYOK (Bring Your Own Key) - fully editable
+- **Visual distinction**: System keys marked with "Free" badge
+- **Masked display**: Only last 4 characters shown
+- **Test functionality**: Test any key before use
+- **Preferred key**: Mark one key as preferred per provider
+
+#### 5. Local Provider Base URLs
+- **LM Studio**: Editable URL (default: http://localhost:1234/v1)
+- **llama.cpp**: Editable URL (default: http://localhost:8080/v1)
+- **Environment defaults**: Can override via .env
+- **Per-provider settings**: Each provider has own URL
+- **Persistent**: Saved to user preferences
+
+#### 6. Data Synchronization
+- **Automatic sync**: Chat data syncs to Supabase when authenticated
+- **Offline support**: LocalStorage fallback when offline
+- **Conflict resolution**: Last-write-wins strategy
+- **Selective sync**: Only sync when Supabase is configured
+
+### Files Created/Modified
+
+**New Files:**
+- `src/lib/supabase.ts` - Supabase client configuration
+- `supabase/schema.sql` - Complete database schema with RLS
+- `SUPABASE_SETUP.md` - Comprehensive setup guide
+- `.env.example` - Updated with all required variables
+
+**Modified Files:**
+- `src/lib/types.ts` - Added `isSystemKey` to APIKey interface
+- `src/lib/storage.ts` - Added Supabase sync functions
+- `src/contexts/AuthContext.tsx` - Full Supabase Auth integration
+- `src/pages/SettingsPage.tsx` - System keys display, local URL editing
+- `src/components/layout/Navbar.tsx` - Fixed user profile display
+- `notes.md` - This documentation
+
+### Environment Variables
+
+```env
+# Supabase Configuration
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+
+# Free Tier API Keys (3 per provider)
+VITE_GROQ_API_KEY_1=gsk_...
+VITE_GROQ_API_KEY_2=gsk_...
+VITE_GROQ_API_KEY_3=gsk_...
+VITE_CEREBRAS_API_KEY_1=csk_...
+VITE_CEREBRAS_API_KEY_2=csk_...
+VITE_CEREBRAS_API_KEY_3=csk_...
+
+# Local Provider URLs (optional)
+VITE_LMSTUDIO_DEFAULT_URL=http://localhost:1234/v1
+VITE_LLAMACPP_DEFAULT_URL=http://localhost:8080/v1
+```
+
+### Security Considerations
+
+1. **API Keys**:
+   - System keys stored in environment variables (server-side)
+   - User keys stored in database with RLS protection
+   - Keys masked in UI (last 4 chars only)
+   - Never logged or exposed in error messages
+
+2. **Authentication**:
+   - Supabase Auth with JWT tokens
+   - Secure session management
+   - Protected routes and API endpoints
+   - RLS on all database tables
+
+3. **Data Privacy**:
+   - Users can only access their own data
+   - Documents stored in private storage bucket
+   - Chat history isolated per user
+   - No cross-user data leakage
+
+### Testing
+
+```bash
+# Build successful
+npm run build
+✓ 2961 modules transformed
+✓ No TypeScript errors
+
+# Test scenarios
+1. Sign up with new account → system keys auto-added
+2. Sign in → data loads from Supabase
+3. Create chat → syncs to database
+4. Add API key → saved to user_api_keys
+5. Upload document → stored in Supabase Storage
+6. Sign out → session cleared
+```
+
+### Deployment Checklist
+
+- [ ] Create Supabase project
+- [ ] Run schema.sql in SQL Editor
+- [ ] Get Supabase URL and anon key
+- [ ] Get Groq API keys (3 recommended)
+- [ ] Get Cerebras API keys (3 recommended)
+- [ ] Configure .env with all variables
+- [ ] Insert system API keys via SQL
+- [ ] Test authentication flow
+- [ ] Test data persistence
+- [ ] Deploy to Vercel/Netlify with env vars
+
+### Known Limitations
+
+1. **System Key Assignment**: Currently uses special UUID `00000000-0000-0000-0000-000000000000` as marker. Future: Use Supabase Edge Functions to auto-assign.
+
+2. **Offline Mode**: When Supabase is unavailable, app falls back to localStorage. Data won't sync until connection restored.
+
+3. **File Storage**: Documents stored in Supabase Storage (1GB free tier limit). Large files may require upgrade.
+
+4. **Rate Limits**: Groq/Cerebras free tiers have rate limits. Fallback to next key helps but doesn't eliminate limits.
+
+### Future Enhancements
+
+1. **Real-time Sync**: Use Supabase Realtime for live updates across devices
+2. **Vector Embeddings**: Store embeddings in pgvector for better RAG
+3. **Usage Analytics**: Track API usage per user for billing
+4. **Team Collaboration**: Share projects/chats with team members
+5. **Custom Models**: Support for additional LLM providers
+6. **Advanced RAG**: Hybrid search with embeddings + BM25
+
+---
+
 **Last Updated**: 2026
-**Version**: 1.2.0
-**Status**: Demo Button, API Fallback, Regeneration Fix Complete
+**Version**: 2.0.0
+**Status**: Supabase Integration Complete

@@ -31,7 +31,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
-import { loadState, saveState, loadAPIKeyConfig, saveAPIKeyConfig, getPreferredKey, maskApiKey } from "@/lib/storage";
+import { loadState, saveState, loadAPIKeyConfig, saveAPIKeyConfig, getPreferredKey, maskApiKey, getSystemApiKeys } from "@/lib/storage";
 import { LLM_PROVIDERS, testConnection } from "@/lib/llm/providers";
 import { MODEL_REGISTRY, getModelsByProvider } from "@/lib/llm/modelRegistry";
 import { generateId } from "@/lib/utils";
@@ -269,6 +269,7 @@ function UsageSettings() {
 
 // API Settings
 function APISettings() {
+  const [state, setState] = useState(loadState());
   const [apiConfig, setApiConfig] = useState(loadAPIKeyConfig());
   const [showAddKey, setShowAddKey] = useState(false);
   const [newKeyProvider, setNewKeyProvider] = useState<LLMProviderType>("groq");
@@ -276,6 +277,12 @@ function APISettings() {
   const [newKeyValue, setNewKeyValue] = useState("");
   const [testingKey, setTestingKey] = useState<string | null>(null);
   const [testResult, setTestResult] = useState<{ [key: string]: "success" | "error" }>({});
+  
+  // Get system API keys from environment
+  const systemKeys = getSystemApiKeys();
+  
+  // Combine system keys with user keys
+  const allKeys = [...systemKeys, ...apiConfig.keys.filter(k => !k.isSystemKey)];
 
   const handleAddKey = () => {
     if (!newKeyValue.trim()) return;
@@ -412,13 +419,64 @@ function APISettings() {
             </div>
           )}
 
-          {apiConfig.keys.length === 0 ? (
+          {/* System API Keys (Free Tier) */}
+          {systemKeys.length > 0 && (
+            <div className="space-y-2">
+              <h4 className="text-sm font-medium flex items-center gap-2">
+                <Badge variant="secondary">Free Tier</Badge>
+                Default API Keys (Read-only)
+              </h4>
+              {systemKeys.map((key) => {
+                const provider = LLM_PROVIDERS.find(p => p.id === key.provider);
+                return (
+                  <div key={key.id} className="flex items-center justify-between p-3 border rounded-lg bg-muted/30">
+                    <div className="flex items-center gap-3">
+                      {key.isPreferred && <Star className="h-4 w-4 text-yellow-500 fill-yellow-500" />}
+                      <div>
+                        <p className="font-medium text-sm flex items-center gap-2">
+                          {key.name}
+                          <Badge variant="outline" className="text-xs">Free</Badge>
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {provider?.name} • {maskApiKey(key.key)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {testResult[key.id] === "success" && (
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                      )}
+                      {testResult[key.id] === "error" && (
+                        <AlertTriangle className="h-4 w-4 text-red-500" />
+                      )}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleTestKey(key)}
+                        disabled={testingKey === key.id}
+                      >
+                        {testingKey === key.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          "Test"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* User API Keys */}
+          {apiConfig.keys.filter(k => !k.isSystemKey).length === 0 && systemKeys.length === 0 ? (
             <p className="text-sm text-muted-foreground text-center py-8">
               No API keys configured. Add one to get started.
             </p>
-          ) : (
+          ) : apiConfig.keys.filter(k => !k.isSystemKey).length > 0 ? (
             <div className="space-y-2">
-              {apiConfig.keys.map((key) => {
+              <h4 className="text-sm font-medium">Your API Keys</h4>
+              {apiConfig.keys.filter(k => !k.isSystemKey).map((key) => {
                 const provider = LLM_PROVIDERS.find(p => p.id === key.provider);
                 return (
                   <div key={key.id} className="flex items-center justify-between p-3 border rounded-lg">
@@ -463,7 +521,7 @@ function APISettings() {
                 );
               })}
             </div>
-          )}
+          ) : null}
         </CardContent>
       </Card>
 
@@ -511,6 +569,54 @@ function APISettings() {
               className="w-24"
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Local Provider URLs</CardTitle>
+          <CardDescription>Configure base URLs for local LLM servers</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <Label>LM Studio URL</Label>
+            <Input
+              value={state.llmConfig.provider === "lmstudio" ? state.llmConfig.baseUrl : (import.meta.env.VITE_LMSTUDIO_DEFAULT_URL || "http://localhost:1234/v1")}
+              onChange={(e) => {
+                if (state.llmConfig.provider === "lmstudio") {
+                  const newConfig = { ...state.llmConfig, baseUrl: e.target.value };
+                  setState({ ...state, llmConfig: newConfig });
+                  saveState({ ...state, llmConfig: newConfig });
+                }
+              }}
+              placeholder="http://localhost:1234/v1"
+              disabled={state.llmConfig.provider !== "lmstudio"}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Default: {import.meta.env.VITE_LMSTUDIO_DEFAULT_URL || "http://localhost:1234/v1"}
+            </p>
+          </div>
+          <div>
+            <Label>llama.cpp URL</Label>
+            <Input
+              value={state.llmConfig.provider === "llamacpp" ? state.llmConfig.baseUrl : (import.meta.env.VITE_LLAMACPP_DEFAULT_URL || "http://localhost:8080/v1")}
+              onChange={(e) => {
+                if (state.llmConfig.provider === "llamacpp") {
+                  const newConfig = { ...state.llmConfig, baseUrl: e.target.value };
+                  setState({ ...state, llmConfig: newConfig });
+                  saveState({ ...state, llmConfig: newConfig });
+                }
+              }}
+              placeholder="http://localhost:8080/v1"
+              disabled={state.llmConfig.provider !== "llamacpp"}
+            />
+            <p className="text-xs text-muted-foreground mt-1">
+              Default: {import.meta.env.VITE_LLAMACPP_DEFAULT_URL || "http://localhost:8080/v1"}
+            </p>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Switch to the respective provider in the chat settings to edit these URLs.
+          </p>
         </CardContent>
       </Card>
     </div>
@@ -811,7 +917,7 @@ function AccountSettings() {
   const { user, signOut, isDemoMode } = useAuth();
   const navigate = useNavigate();
   const [editingName, setEditingName] = useState(false);
-  const [newName, setNewName] = useState(user?.name || "");
+  const [newName, setNewName] = useState(user?.full_name || "");
 
   const handleLogout = () => {
     signOut();
@@ -854,7 +960,7 @@ function AccountSettings() {
               </div>
             ) : (
               <div className="flex gap-2">
-                <Input value={user?.name || ""} disabled />
+                <Input value={user?.full_name || ""} disabled />
                 <Button variant="outline" onClick={() => setEditingName(true)}>Edit</Button>
               </div>
             )}
