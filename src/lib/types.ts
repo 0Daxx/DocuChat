@@ -26,6 +26,7 @@ export interface APIKey {
   name: string;
   key: string; // Stored securely, never fully displayed
   isPreferred: boolean;
+  isSystemKey?: boolean; // True for free tier keys
   createdAt: number;
   lastUsed?: number;
   isValid?: boolean;

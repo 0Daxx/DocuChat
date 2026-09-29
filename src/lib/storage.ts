@@ -1,4 +1,6 @@
 import type { AppState, ChatSession, Document, DocumentChunk, LLMConfig, Project, APIKey, APIKeyConfig, UserPreferences } from "./types";
+import { supabase, isSupabaseConfigured } from "./supabase";
+import { generateId } from "./utils";
 
 const STORAGE_KEY = "docuchat_state";
 const API_KEY_STORAGE_KEY = "docuchat_api_keys_v2";
@@ -78,6 +80,139 @@ export function getKeysForProvider(provider: string): APIKey[] {
 export function maskApiKey(key: string): string {
   if (key.length <= 8) return "••••••••";
   return `••••••••${key.slice(-4)}`;
+}
+
+// Get system API keys from environment variables
+export function getSystemApiKeys(): APIKey[] {
+  const systemKeys: APIKey[] = [];
+  const now = Date.now();
+
+  // Groq keys (3 free keys)
+  for (let i = 1; i <= 3; i++) {
+    const key = import.meta.env[`VITE_GROQ_API_KEY_${i}`];
+    if (key) {
+      systemKeys.push({
+        id: `system-groq-${i}`,
+        provider: "groq",
+        name: `Free Tier Key ${i}`,
+        key,
+        isPreferred: i === 1,
+        isSystemKey: true,
+        createdAt: now,
+      });
+    }
+  }
+
+  // Cerebras keys (3 free keys)
+  for (let i = 1; i <= 3; i++) {
+    const key = import.meta.env[`VITE_CEREBRAS_API_KEY_${i}`];
+    if (key) {
+      systemKeys.push({
+        id: `system-cerebras-${i}`,
+        provider: "cerebras",
+        name: `Free Tier Key ${i}`,
+        key,
+        isPreferred: i === 1,
+        isSystemKey: true,
+        createdAt: now,
+      });
+    }
+  }
+
+  return systemKeys;
+}
+
+// Initialize system API keys for a user
+export async function initializeSystemKeys(userId: string): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+
+  const systemKeys = getSystemApiKeys();
+  if (systemKeys.length === 0) return;
+
+  try {
+    // Check if user already has system keys
+    const { data: existingKeys } = await supabase
+      .from('user_api_keys')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('is_system_key', true);
+
+    if (existingKeys && existingKeys.length > 0) {
+      return; // Already initialized
+    }
+
+    // Insert system keys
+    const keysToInsert = systemKeys.map(key => ({
+      user_id: userId,
+      provider: key.provider,
+      name: key.name,
+      api_key: key.key,
+      is_preferred: key.isPreferred,
+      is_system_key: true,
+    }));
+
+    await supabase.from('user_api_keys').insert(keysToInsert);
+  } catch (error) {
+    console.error('Failed to initialize system keys:', error);
+  }
+}
+
+// Load API keys from Supabase (for authenticated users)
+export async function loadApiKeysFromSupabase(userId: string): Promise<APIKey[]> {
+  if (!isSupabaseConfigured()) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('user_api_keys')
+      .select('*')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: true });
+
+    if (error) throw error;
+
+    return (data || []).map(row => ({
+      id: row.id,
+      provider: row.provider,
+      name: row.name,
+      key: row.api_key,
+      isPreferred: row.is_preferred,
+      isSystemKey: row.is_system_key,
+      createdAt: new Date(row.created_at).getTime(),
+    }));
+  } catch (error) {
+    console.error('Failed to load API keys from Supabase:', error);
+    return [];
+  }
+}
+
+// Save API key to Supabase
+export async function saveApiKeyToSupabase(userId: string, key: APIKey): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+
+  try {
+    await supabase.from('user_api_keys').upsert({
+      id: key.id,
+      user_id: userId,
+      provider: key.provider,
+      name: key.name,
+      api_key: key.key,
+      is_preferred: key.isPreferred,
+      is_system_key: key.isSystemKey || false,
+    });
+  } catch (error) {
+    console.error('Failed to save API key to Supabase:', error);
+  }
+}
+
+// Delete API key from Supabase
+export async function deleteApiKeyFromSupabase(keyId: string): Promise<void> {
+  if (!isSupabaseConfigured()) return;
+
+  try {
+    await supabase.from('user_api_keys').delete().eq('id', keyId);
+  } catch (error) {
+    console.error('Failed to delete API key from Supabase:', error);
+  }
 }
 
 export function loadState(): AppState {
