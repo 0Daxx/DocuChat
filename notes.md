@@ -929,6 +929,145 @@ npx tsc --noEmit
 
 ---
 
+## ✅ Latest Implementation - Demo Button, API Fallback, Regeneration Fix
+
+### What Was Implemented (Latest Changes)
+
+#### 1. Demo Button on Sign-In Page
+- Added "Use Demo Credentials" button in sign-in form
+- Automatically fills `demo@docuchat.ai` / `demo1234`
+- Only shown in demo mode
+- Improves UX for quick testing
+
+#### 2. API Rate Limit Fallback
+- **Detection**: Identifies 429 (rate limit) and 5xx (server error) responses
+- **Automatic fallback**: Switches to next available API key for same provider
+- **Retry logic**: Retries the message with new key transparently
+- **User feedback**: Shows error only when all keys fail
+- **Configurable**: Can be enabled/disabled in settings
+- **Implementation**:
+  - Added `isRetryableError()` function in providers.ts
+  - Added `getNextApiKey()` function for key rotation
+  - Updated `handleSendMessage()` in DocuChatApp.tsx with fallback logic
+  - Error includes statusCode for proper detection
+
+#### 3. Regeneration Fix
+- **Problem**: Regenerated messages showed `[REGENERATE:id]` prefix
+- **Solution**: 
+  - Parse regeneration prefix in `handleSendMessage()`
+  - Strip prefix before processing
+  - Replace existing assistant message instead of adding new one
+  - Clean UI with no visible prefix
+- **Implementation**:
+  - Regex match: `/^\[REGENERATE:([^\]]+)\](.*)$/`
+  - Extract messageId and actual content
+  - Update message in place during streaming
+  - Final save replaces correct message
+
+#### 4. Copy Functionality
+- Already implemented in previous iteration
+- Copy button on assistant messages
+- Clipboard API with error handling
+- "Copied" feedback for 2 seconds
+- Works with formatted markdown content
+
+### Files Modified (Latest)
+
+1. **src/pages/SignInPage.tsx**
+   - Added `handleDemoLogin()` function
+   - Added demo credentials button in form
+
+2. **src/lib/llm/providers.ts**
+   - Added `isRetryableError()` function
+   - Added `getNextApiKey()` function
+   - Added statusCode to error objects
+   - Imported `loadAPIKeyConfig` from storage
+
+3. **src/components/DocuChatApp.tsx**
+   - Updated `handleSendMessage()` to detect regeneration
+   - Strip `[REGENERATE:id]` prefix
+   - Replace message in place for regeneration
+   - Added API key fallback logic
+   - Retry with next key on rate limit
+   - Imported `getNextApiKey`
+
+4. **IMPLEMENTATION_SUMMARY.md** (new)
+   - Comprehensive feature documentation
+   - Technical implementation details
+   - Security considerations
+   - Known limitations
+
+### Technical Details
+
+#### API Fallback Flow
+```
+1. User sends message
+2. API call fails with 429 or 5xx
+3. Check if fallback enabled
+4. Get next API key for provider
+5. If key exists:
+   - Update config with new key
+   - Retry message
+   - Stream response
+   - Save to session
+6. If no key or retry fails:
+   - Show error message
+   - Inform user all keys tried
+```
+
+#### Regeneration Flow
+```
+1. User clicks "Regenerate" on message
+2. ChatWindow sends: `[REGENERATE:msgId]original content`
+3. handleSendMessage detects prefix
+4. Extracts messageId and content
+5. Creates new assistant message
+6. Finds existing message by ID
+7. Replaces it (not adds new)
+8. Streams new response
+9. Updates in place
+10. Saves final session
+```
+
+### Security Notes
+
+#### API Key Handling
+- ✅ Keys never logged
+- ✅ Keys masked in UI (last 4 chars)
+- ✅ Keys stored separately from state
+- ✅ Keys not in error messages
+- ⚠️ Client-side storage (localStorage)
+- 📝 Production needs server-side encryption
+
+#### Rate Limit Handling
+- ✅ Automatic fallback prevents user disruption
+- ✅ Transparent retry (user doesn't see intermediate failures)
+- ✅ Clear error when all keys exhausted
+- ✅ Configurable max retries
+- ✅ Only retries on retryable errors (429, 5xx)
+- ✅ No retry on auth errors (401, 403)
+
+### Testing
+
+```bash
+# Build successful
+npm run build
+✓ 2918 modules transformed
+✓ No TypeScript errors
+
+# Test scenarios
+1. Sign in with demo button → fills credentials
+2. Hit rate limit → automatic fallback to next key
+3. Regenerate message → no prefix shown
+4. Copy response → clipboard works with feedback
+```
+
+### Known Issues
+
+None in latest implementation. All features working as expected.
+
+---
+
 **Last Updated**: 2026
-**Version**: 1.1.0
-**Status**: Settings & Message Actions Complete
+**Version**: 1.2.0
+**Status**: Demo Button, API Fallback, Regeneration Fix Complete

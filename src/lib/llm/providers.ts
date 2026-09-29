@@ -1,4 +1,5 @@
 import type { LLMConfig, LLMProviderOption, LLMProviderType, ChunkSource } from "../types";
+import { loadAPIKeyConfig } from "../storage";
 
 export const LLM_PROVIDERS: LLMProviderOption[] = [
   {
@@ -174,7 +175,9 @@ export async function streamChatCompletion(
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`LLM API error (${response.status}): ${errorText}`);
+    const error = new Error(`LLM API error (${response.status}): ${errorText}`);
+    (error as any).statusCode = response.status;
+    throw error;
   }
 
   const reader = response.body?.getReader();
@@ -240,4 +243,26 @@ export async function streamChatCompletion(
   }
 
   return fullContent;
+}
+
+// Check if an error is retryable (rate limit, server error, etc.)
+export function isRetryableError(error: any): boolean {
+  if (!error?.statusCode) return false;
+  // 429 = rate limit, 5xx = server errors
+  return error.statusCode === 429 || (error.statusCode >= 500 && error.statusCode < 600);
+}
+
+// Get next available API key for fallback
+export function getNextApiKey(provider: string, currentKey: string): string | null {
+  const config = loadAPIKeyConfig();
+  const providerKeys = config.keys.filter(k => k.provider === provider);
+  
+  if (providerKeys.length <= 1) return null;
+  
+  const currentIndex = providerKeys.findIndex(k => k.key === currentKey);
+  if (currentIndex === -1) return providerKeys[0]?.key || null;
+  
+  // Return next key in rotation
+  const nextIndex = (currentIndex + 1) % providerKeys.length;
+  return providerKeys[nextIndex]?.key || null;
 }

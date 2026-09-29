@@ -16,7 +16,7 @@ import {
 import { parseDocument } from "@/lib/documents/parser";
 import { chunkText } from "@/lib/documents/chunker";
 import { vectorStore } from "@/lib/documents/vectorStore";
-import { streamChatCompletion } from "@/lib/llm/providers";
+import { streamChatCompletion, getNextApiKey } from "@/lib/llm/providers";
 import { generateId } from "@/lib/utils";
 import type {
   AppState,
@@ -257,19 +257,36 @@ export function DocuChatApp() {
       return;
     }
 
-    const userMessage: ChatMessage = { id: generateId(), role: "user", content, timestamp: Date.now() };
+    // Check if this is a regeneration request
+    const regenerateMatch = content.match(/^\[REGENERATE:([^\]]+)\](.*)$/);
+    const isRegeneration = !!regenerateMatch;
+    const regenerateMessageId = regenerateMatch?.[1];
+    const actualContent = regenerateMatch ? regenerateMatch[2] : content;
+
+    const userMessage: ChatMessage = { id: generateId(), role: "user", content: actualContent, timestamp: Date.now() };
     const documentIds = getChatDocumentIds(activeSession);
-    const sources: ChunkSource[] = vectorStore.search(content, 5, documentIds);
+    const sources: ChunkSource[] = vectorStore.search(actualContent, 5, documentIds);
     const assistantMessage: ChatMessage = {
       id: generateId(), role: "assistant", content: "", timestamp: Date.now(),
       sources: sources.length > 0 ? sources : undefined,
     };
 
+    // For regeneration, replace the previous assistant message
+    let updatedMessages = [...activeSession.messages];
+    if (isRegeneration && regenerateMessageId) {
+      const msgIndex = updatedMessages.findIndex(m => m.id === regenerateMessageId);
+      if (msgIndex !== -1) {
+        updatedMessages[msgIndex] = assistantMessage;
+      }
+    } else {
+      updatedMessages.push(userMessage, assistantMessage);
+    }
+
     const updatedSession: ChatSession = {
       ...activeSession,
-      title: activeSession.messages.length === 0 ? content.slice(0, 50) : activeSession.title,
+      title: activeSession.messages.length === 0 ? actualContent.slice(0, 50) : activeSession.title,
       updatedAt: Date.now(),
-      messages: [...activeSession.messages, userMessage, assistantMessage],
+      messages: updatedMessages,
     };
 
     setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === updatedSession.id ? updatedSession : s) }));
@@ -280,7 +297,7 @@ export function DocuChatApp() {
 
     try {
       const historyMessages = activeSession.messages.filter(m => m.role !== "system").slice(-10).map(m => ({ role: m.role, content: m.content }));
-      historyMessages.push({ role: "user", content });
+      historyMessages.push({ role: "user", content: actualContent });
       let fullContent = "";
 
       await streamChatCompletion(state.llmConfig, historyMessages, sources, (chunk) => {
@@ -290,34 +307,145 @@ export function DocuChatApp() {
           sessions: prev.sessions.map(s => {
             if (s.id !== updatedSession.id) return s;
             const messages = [...s.messages];
-            const lastMsg = messages[messages.length - 1];
-            if (lastMsg && lastMsg.role === "assistant") {
-              messages[messages.length - 1] = { ...lastMsg, content: fullContent };
+            const targetIndex = isRegeneration && regenerateMessageId 
+              ? messages.findIndex(m => m.id === regenerateMessageId)
+              : messages.length - 1;
+            if (targetIndex !== -1 && messages[targetIndex]?.role === "assistant") {
+              messages[targetIndex] = { ...messages[targetIndex], content: fullContent };
             }
             return { ...s, messages };
           }),
         }));
       }, abortController.signal);
 
+      // Finalize the session with the complete response
+      const finalMessages = [...updatedSession.messages];
+      const targetIndex = isRegeneration && regenerateMessageId 
+        ? finalMessages.findIndex(m => m.id === regenerateMessageId)
+        : finalMessages.findIndex(m => m.id === assistantMessage.id);
+      
+      if (targetIndex !== -1) {
+        finalMessages[targetIndex] = { ...finalMessages[targetIndex], content: fullContent };
+      }
+
       const finalSession: ChatSession = {
         ...updatedSession,
-        messages: [...updatedSession.messages.slice(0, -1), { ...assistantMessage, content: fullContent }],
+        messages: finalMessages,
       };
       saveSession(finalSession);
       setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s) }));
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
+        const finalMessages = [...updatedSession.messages];
+        const targetIndex = isRegeneration && regenerateMessageId 
+          ? finalMessages.findIndex(m => m.id === regenerateMessageId)
+          : finalMessages.findIndex(m => m.id === assistantMessage.id);
+        
+        if (targetIndex !== -1) {
+          finalMessages[targetIndex] = { ...finalMessages[targetIndex], content: finalMessages[targetIndex].content || "[Response cancelled]" };
+        }
+
         const finalSession: ChatSession = {
           ...updatedSession,
-          messages: updatedSession.messages.slice(0, -1).concat({ ...assistantMessage, content: assistantMessage.content || "[Response cancelled]" }),
+          messages: finalMessages,
         };
         saveSession(finalSession);
         setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s) }));
       } else {
+        // Check if this is a retryable error (rate limit, server error)
+        const isRetryable = (error as any)?.statusCode === 429 || 
+                           ((error as any)?.statusCode >= 500 && (error as any)?.statusCode < 600);
+        
+        if (isRetryable && state.apiKeyConfig.fallbackEnabled) {
+          // Try to get next API key
+          const nextKey = getNextApiKey(state.llmConfig.provider, state.llmConfig.apiKey || "");
+          
+          if (nextKey) {
+            // Update config with new API key and retry
+            const newConfig = { ...state.llmConfig, apiKey: nextKey };
+            setState(prev => ({ ...prev, llmConfig: newConfig }));
+            
+            // Retry the message with new API key
+            try {
+              const retrySources: ChunkSource[] = vectorStore.search(actualContent, 5, documentIds);
+              let retryContent = "";
+              
+              // Build history for retry
+              const retryHistoryMessages = activeSession.messages.filter(m => m.role !== "system").slice(-10).map(m => ({ role: m.role, content: m.content }));
+              retryHistoryMessages.push({ role: "user", content: actualContent });
+              
+              await streamChatCompletion(newConfig, retryHistoryMessages, retrySources, (chunk) => {
+                retryContent += chunk;
+                setState(prev => ({
+                  ...prev,
+                  sessions: prev.sessions.map(s => {
+                    if (s.id !== updatedSession.id) return s;
+                    const messages = [...s.messages];
+                    const targetIdx = isRegeneration && regenerateMessageId 
+                      ? messages.findIndex(m => m.id === regenerateMessageId)
+                      : messages.findIndex(m => m.id === assistantMessage.id);
+                    if (targetIdx !== -1 && messages[targetIdx]?.role === "assistant") {
+                      messages[targetIdx] = { ...messages[targetIdx], content: retryContent };
+                    }
+                    return { ...s, messages };
+                  }),
+                }));
+              }, abortController.signal);
+              
+              // Success with fallback key
+              const finalMessages = [...updatedSession.messages];
+              const targetIndex = isRegeneration && regenerateMessageId 
+                ? finalMessages.findIndex(m => m.id === regenerateMessageId)
+                : finalMessages.findIndex(m => m.id === assistantMessage.id);
+              
+              if (targetIndex !== -1) {
+                finalMessages[targetIndex] = { ...finalMessages[targetIndex], content: retryContent };
+              }
+
+              const finalSession: ChatSession = {
+                ...updatedSession,
+                messages: finalMessages,
+              };
+              saveSession(finalSession);
+              setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s) }));
+              return;
+            } catch (retryError) {
+              // Fallback also failed, show error
+              const errorMessage = retryError instanceof Error ? retryError.message : "All API keys failed";
+              const finalMessages = [...updatedSession.messages];
+              const targetIndex = isRegeneration && regenerateMessageId 
+                ? finalMessages.findIndex(m => m.id === regenerateMessageId)
+                : finalMessages.findIndex(m => m.id === assistantMessage.id);
+              
+              if (targetIndex !== -1) {
+                finalMessages[targetIndex] = { ...finalMessages[targetIndex], content: `Error: ${errorMessage}\n\nAll API keys have been tried. Please check your API keys in Settings.` };
+              }
+
+              const finalSession: ChatSession = {
+                ...updatedSession,
+                messages: finalMessages,
+              };
+              saveSession(finalSession);
+              setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s) }));
+              return;
+            }
+          }
+        }
+        
+        // Non-retryable error or no fallback available
         const errorMessage = error instanceof Error ? error.message : "An error occurred";
+        const finalMessages = [...updatedSession.messages];
+        const targetIndex = isRegeneration && regenerateMessageId 
+          ? finalMessages.findIndex(m => m.id === regenerateMessageId)
+          : finalMessages.findIndex(m => m.id === assistantMessage.id);
+        
+        if (targetIndex !== -1) {
+          finalMessages[targetIndex] = { ...finalMessages[targetIndex], content: `Error: ${errorMessage}` };
+        }
+
         const finalSession: ChatSession = {
           ...updatedSession,
-          messages: updatedSession.messages.slice(0, -1).concat({ ...assistantMessage, content: `Error: ${errorMessage}` }),
+          messages: finalMessages,
         };
         saveSession(finalSession);
         setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s) }));
