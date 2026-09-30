@@ -14,7 +14,7 @@ export function SignUpPage() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const { signUp, isDemoMode, loading } = useAuth();
+  const { signUp, loading, isSupabaseAvailable } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -48,9 +48,9 @@ export function SignUpPage() {
           </div>
           <CardTitle className="text-2xl">Create an account</CardTitle>
           <CardDescription>Get started with DocuChat today</CardDescription>
-          {isDemoMode && (
+          {!isSupabaseAvailable && (
             <Badge variant="secondary" className="mx-auto mt-2">
-              Demo Mode
+              Local Mode
             </Badge>
           )}
         </CardHeader>

@@ -914,7 +914,7 @@ function PersonalisationSettings() {
 
 // Account Settings
 function AccountSettings() {
-  const { user, signOut, isDemoMode } = useAuth();
+  const { user, signOut, isDemoUser, isSupabaseAvailable } = useAuth();
   const navigate = useNavigate();
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState(user?.full_name || "");
@@ -965,9 +965,11 @@ function AccountSettings() {
               </div>
             )}
           </div>
-          {isDemoMode && (
+          {(isDemoUser || !isSupabaseAvailable) && (
             <p className="text-sm text-muted-foreground">
-              You are using demo mode. Account changes are stored locally.
+              {isDemoUser 
+                ? "You are using a demo account. Some features may be limited."
+                : "Supabase is not configured. Account changes are stored locally."}
             </p>
           )}
         </CardContent>
@@ -982,9 +984,9 @@ function AccountSettings() {
           <Button variant="outline" disabled>
             Change Password
           </Button>
-          {isDemoMode && (
+          {!isSupabaseAvailable && (
             <p className="text-sm text-muted-foreground mt-2">
-              Password management is not available in demo mode.
+              Password management requires Supabase configuration.
             </p>
           )}
         </CardContent>
