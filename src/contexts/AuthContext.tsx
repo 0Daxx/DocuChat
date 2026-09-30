@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
-import type { User } from "@supabase/supabase-js";
 import { initializeSystemKeys } from "@/lib/storage";
 
 export interface UserProfile {
@@ -8,57 +7,55 @@ export interface UserProfile {
   email: string;
   full_name?: string;
   avatar_url?: string;
+  is_demo?: boolean;
 }
 
+export type AuthState = 
+  | { status: "loading" }
+  | { status: "unauthenticated" }
+  | { status: "authenticated"; user: UserProfile };
+
 interface AuthContextType {
+  authState: AuthState;
   user: UserProfile | null;
   loading: boolean;
-  isDemoMode: boolean;
+  isDemoUser: boolean;
+  isSupabaseAvailable: boolean;
   signIn: (email: string, password: string) => Promise<{ error?: string }>;
   signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
+  signInAsDemo: () => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<{ error?: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const DEMO_USER: UserProfile = {
-  id: "demo-user-001",
-  email: "demo@docuchat.ai",
-  full_name: "Demo User",
-};
-
-const STORAGE_KEY = "docuchat_auth";
+const DEMO_EMAIL = "demo@docuchat.ai";
+const DEMO_PASSWORD = "demo1234";
+const DEMO_FULL_NAME = "Demo User";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<UserProfile | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [authState, setAuthState] = useState<AuthState>({ status: "loading" });
+  const isSupabaseAvailable = isSupabaseConfigured();
 
-  const isDemoMode = !isSupabaseConfigured();
+  // Derive convenience properties from authState
+  const user = authState.status === "authenticated" ? authState.user : null;
+  const loading = authState.status === "loading";
+  const isDemoUser = authState.status === "authenticated" && authState.user.is_demo === true;
 
   useEffect(() => {
-    // Check if Supabase is configured
-    if (!isSupabaseConfigured()) {
-      // Demo mode - load from localStorage
-      const stored = localStorage.getItem(STORAGE_KEY);
-      if (stored) {
-        try {
-          const parsed = JSON.parse(stored);
-          setUser(parsed);
-        } catch (e) {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-      }
-      setLoading(false);
+    if (!isSupabaseAvailable) {
+      // Supabase not configured - user must sign in via demo button
+      setAuthState({ status: "unauthenticated" });
       return;
     }
 
-    // Supabase mode - check for existing session
+    // Check for existing Supabase session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         loadUserProfile(session.user.id);
       } else {
-        setLoading(false);
+        setAuthState({ status: "unauthenticated" });
       }
     });
 
@@ -67,16 +64,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       async (event, session) => {
         if (event === "SIGNED_IN" && session?.user) {
           await loadUserProfile(session.user.id);
-          // Initialize system API keys for new users
           await initializeSystemKeys(session.user.id);
         } else if (event === "SIGNED_OUT") {
-          setUser(null);
+          setAuthState({ status: "unauthenticated" });
         }
       }
     );
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const loadUserProfile = async (userId: string) => {
     try {
@@ -88,50 +84,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) throw error;
 
-      setUser({
+      const profile: UserProfile = {
         id: data.id,
         email: data.email,
         full_name: data.full_name,
         avatar_url: data.avatar_url,
-      });
+        is_demo: data.is_demo || false,
+      };
+
+      setAuthState({ status: "authenticated", user: profile });
     } catch (error) {
       console.error("Failed to load user profile:", error);
-    } finally {
-      setLoading(false);
+      setAuthState({ status: "unauthenticated" });
     }
   };
 
   const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
-    setLoading(true);
-
-    if (isDemoMode) {
-      // Demo mode authentication
-      await new Promise(resolve => setTimeout(resolve, 800));
-
-      if (email === "demo@docuchat.ai" && password === "demo1234") {
-        setUser(DEMO_USER);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(DEMO_USER));
-        setLoading(false);
-        return {};
-      }
-
-      if (email.includes("@") && password.length >= 6) {
-        const demoUser: UserProfile = {
-          id: `user-${Date.now()}`,
-          email,
-          full_name: email.split("@")[0],
-        };
-        setUser(demoUser);
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(demoUser));
-        setLoading(false);
-        return {};
-      }
-
-      setLoading(false);
-      return { error: "Invalid credentials. Use demo@docuchat.ai / demo1234 or any valid email with 6+ char password." };
+    if (!isSupabaseAvailable) {
+      return { error: "Supabase is not configured. Please use the Demo button." };
     }
 
-    // Supabase authentication
+    setAuthState({ status: "loading" });
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -139,7 +113,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
 
       if (error) {
-        setLoading(false);
+        setAuthState({ status: "unauthenticated" });
         return { error: error.message };
       }
 
@@ -147,46 +121,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await loadUserProfile(data.user.id);
       }
 
-      setLoading(false);
       return {};
     } catch (error) {
-      setLoading(false);
+      setAuthState({ status: "unauthenticated" });
       return { error: "Failed to sign in. Please try again." };
     }
   };
 
   const signUp = async (email: string, password: string, fullName: string): Promise<{ error?: string }> => {
-    setLoading(true);
-
-    if (isDemoMode) {
-      // Demo mode sign up
-      await new Promise(resolve => setTimeout(resolve, 800));
-
-      if (!email.includes("@")) {
-        setLoading(false);
-        return { error: "Please enter a valid email address." };
-      }
-      if (password.length < 6) {
-        setLoading(false);
-        return { error: "Password must be at least 6 characters." };
-      }
-      if (!fullName.trim()) {
-        setLoading(false);
-        return { error: "Please enter your name." };
-      }
-
-      const newUser: UserProfile = {
-        id: `user-${Date.now()}`,
-        email,
-        full_name: fullName.trim(),
-      };
-      setUser(newUser);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newUser));
-      setLoading(false);
-      return {};
+    if (!isSupabaseAvailable) {
+      return { error: "Supabase is not configured. Please use the Demo button." };
     }
 
-    // Supabase sign up
+    setAuthState({ status: "loading" });
+
     try {
       const { data, error } = await supabase.auth.signUp({
         email,
@@ -194,39 +142,123 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         options: {
           data: {
             full_name: fullName,
+            is_demo: false,
           },
         },
       });
 
       if (error) {
-        setLoading(false);
+        setAuthState({ status: "unauthenticated" });
         return { error: error.message };
       }
 
       if (data.user) {
         await loadUserProfile(data.user.id);
-        // Initialize system API keys for new users
         await initializeSystemKeys(data.user.id);
       }
 
-      setLoading(false);
       return {};
     } catch (error) {
-      setLoading(false);
+      setAuthState({ status: "unauthenticated" });
       return { error: "Failed to create account. Please try again." };
     }
   };
 
+  const signInAsDemo = async (): Promise<{ error?: string }> => {
+    setAuthState({ status: "loading" });
+
+    if (!isSupabaseAvailable) {
+      // Supabase not configured - create a local demo session
+      const demoUser: UserProfile = {
+        id: "demo-local-" + Date.now(),
+        email: DEMO_EMAIL,
+        full_name: DEMO_FULL_NAME,
+        is_demo: true,
+      };
+      
+      // Store demo session in localStorage for persistence
+      localStorage.setItem("docuchat_demo_session", JSON.stringify(demoUser));
+      setAuthState({ status: "authenticated", user: demoUser });
+      return {};
+    }
+
+    // Supabase is configured - sign in as demo user via Supabase
+    try {
+      // First, try to sign in with demo credentials
+      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: DEMO_EMAIL,
+        password: DEMO_PASSWORD,
+      });
+
+      if (signInError) {
+        // Demo account doesn't exist - create it
+        if (signInError.message.includes("Invalid login credentials") || 
+            signInError.message.includes("Email not confirmed")) {
+          
+          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+            email: DEMO_EMAIL,
+            password: DEMO_PASSWORD,
+            options: {
+              data: {
+                full_name: DEMO_FULL_NAME,
+                is_demo: true,
+              },
+            },
+          });
+
+          if (signUpError) {
+            setAuthState({ status: "unauthenticated" });
+            return { error: `Failed to create demo account: ${signUpError.message}` };
+          }
+
+          if (signUpData.user) {
+            // Mark the profile as demo
+            await supabase
+              .from("profiles")
+              .update({ is_demo: true })
+              .eq("id", signUpData.user.id);
+
+            await loadUserProfile(signUpData.user.id);
+            await initializeSystemKeys(signUpData.user.id);
+          }
+        } else {
+          setAuthState({ status: "unauthenticated" });
+          return { error: signInError.message };
+        }
+      } else if (signInData.user) {
+        // Successfully signed in - verify it's marked as demo
+        await loadUserProfile(signInData.user.id);
+        
+        // Ensure the profile is marked as demo
+        if (!user?.is_demo) {
+          await supabase
+            .from("profiles")
+            .update({ is_demo: true })
+            .eq("id", signInData.user.id);
+        }
+        
+        await initializeSystemKeys(signInData.user.id);
+      }
+
+      return {};
+    } catch (error) {
+      setAuthState({ status: "unauthenticated" });
+      return { error: "Failed to sign in as demo user. Please try again." };
+    }
+  };
+
   const signOut = async () => {
-    if (isDemoMode) {
-      setUser(null);
-      localStorage.removeItem(STORAGE_KEY);
+    // Clear local demo session if exists
+    localStorage.removeItem("docuchat_demo_session");
+
+    if (!isSupabaseAvailable) {
+      setAuthState({ status: "unauthenticated" });
       return;
     }
 
     try {
       await supabase.auth.signOut();
-      setUser(null);
+      setAuthState({ status: "unauthenticated" });
     } catch (error) {
       console.error("Failed to sign out:", error);
     }
@@ -235,11 +267,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const updateProfile = async (updates: Partial<UserProfile>): Promise<{ error?: string }> => {
     if (!user) return { error: "Not authenticated" };
 
-    if (isDemoMode) {
+    if (user.is_demo && !isSupabaseAvailable) {
+      // Local demo session - update in localStorage
       const updatedUser = { ...user, ...updates };
-      setUser(updatedUser);
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedUser));
+      localStorage.setItem("docuchat_demo_session", JSON.stringify(updatedUser));
+      setAuthState({ status: "authenticated", user: updatedUser });
       return {};
+    }
+
+    if (!isSupabaseAvailable) {
+      return { error: "Supabase is not configured" };
     }
 
     try {
@@ -250,7 +287,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       if (error) throw error;
 
-      setUser({ ...user, ...updates });
+      setAuthState({ status: "authenticated", user: { ...user, ...updates } });
       return {};
     } catch (error) {
       return { error: "Failed to update profile" };
@@ -258,7 +295,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isDemoMode, signIn, signUp, signOut, updateProfile }}>
+    <AuthContext.Provider value={{
+      authState,
+      user,
+      loading,
+      isDemoUser,
+      isSupabaseAvailable,
+      signIn,
+      signUp,
+      signInAsDemo,
+      signOut,
+      updateProfile,
+    }}>
       {children}
     </AuthContext.Provider>
   );

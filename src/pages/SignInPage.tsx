@@ -6,14 +6,15 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { Badge } from "@/components/ui/badge";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, Play } from "lucide-react";
 
 export function SignInPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const { signIn, isDemoMode, loading } = useAuth();
+  const [demoLoading, setDemoLoading] = useState(false);
+  const { signIn, signInAsDemo, loading, isSupabaseAvailable } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -33,9 +34,17 @@ export function SignInPage() {
     }
   };
 
-  const handleDemoLogin = () => {
-    setEmail("demo@docuchat.ai");
-    setPassword("demo1234");
+  const handleDemoSignIn = async () => {
+    setError("");
+    setDemoLoading(true);
+    
+    const result = await signInAsDemo();
+    if (result.error) {
+      setError(result.error);
+    } else {
+      navigate("/app");
+    }
+    setDemoLoading(false);
   };
 
   return (
@@ -47,9 +56,9 @@ export function SignInPage() {
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>Sign in to your DocuChat account</CardDescription>
-          {isDemoMode && (
+          {!isSupabaseAvailable && (
             <Badge variant="secondary" className="mx-auto mt-2">
-              Demo Mode
+              Local Mode
             </Badge>
           )}
         </CardHeader>
@@ -65,10 +74,10 @@ export function SignInPage() {
               <Input
                 id="email"
                 type="email"
-                placeholder="demo@docuchat.ai"
+                placeholder="you@example.com"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                disabled={loading}
+                disabled={loading || demoLoading}
               />
             </div>
             <div className="space-y-2">
@@ -77,39 +86,24 @@ export function SignInPage() {
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
-                  placeholder="demo1234"
+                  placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  disabled={loading}
+                  disabled={loading || demoLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  disabled={loading || demoLoading}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </button>
               </div>
             </div>
-            {isDemoMode && (
-              <div className="rounded-lg bg-muted p-3 text-xs text-muted-foreground">
-                <p className="font-medium mb-1">Demo credentials:</p>
-                <p>Email: demo@docuchat.ai</p>
-                <p>Password: demo1234</p>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  className="mt-2 w-full"
-                  onClick={handleDemoLogin}
-                >
-                  Use Demo Credentials
-                </Button>
-              </div>
-            )}
           </CardContent>
-          <CardFooter className="flex flex-col space-y-4">
-            <Button type="submit" className="w-full" disabled={loading}>
+          <CardFooter className="flex flex-col space-y-3">
+            <Button type="submit" className="w-full" disabled={loading || demoLoading}>
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -119,6 +113,28 @@ export function SignInPage() {
                 "Sign In"
               )}
             </Button>
+            
+            {/* Demo Button - Always visible, explicitly activates demo mode */}
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              onClick={handleDemoSignIn}
+              disabled={loading || demoLoading}
+            >
+              {demoLoading ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Starting demo...
+                </>
+              ) : (
+                <>
+                  <Play className="mr-2 h-4 w-4" />
+                  Try Demo
+                </>
+              )}
+            </Button>
+
             <p className="text-sm text-center text-muted-foreground">
               Don't have an account?{" "}
               <Link to="/signup" className="text-primary hover:underline">
