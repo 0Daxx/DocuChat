@@ -10,11 +10,7 @@ import { DocuChatApp } from "@/components/DocuChatApp";
 import { Toaster } from "@/components/ui/sonner";
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return null;
-  }
+  const { user } = useAuth();
 
   if (user) {
     return <Navigate to="/app" replace />;
