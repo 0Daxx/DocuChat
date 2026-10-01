@@ -1,5 +1,74 @@
 # Implementation Notes - DocuChat MVP
 
+## Latest Update: Demo-Only Mode (2026)
+
+### Major Changes
+- **Removed Supabase integration** - Project is now demo-only
+- **Simplified authentication** - Single "Start Demo" button, no sign-up required
+- **Direct API key usage** - 6 API keys (3 Groq + 3 Cerebras) loaded from environment variables
+- **Local storage only** - All data persisted in browser localStorage
+
+### Environment Variables
+The following environment variables are required:
+```env
+# Groq API Keys (3 keys for automatic fallback)
+VITE_GROQ_API_KEY_1=your_groq_api_key_1
+VITE_GROQ_API_KEY_2=your_groq_api_key_2
+VITE_GROQ_API_KEY_3=your_groq_api_key_3
+
+# Cerebras API Keys (3 keys for automatic fallback)
+VITE_CEREBRAS_API_KEY_1=your_cerebras_api_key_1
+VITE_CEREBRAS_API_KEY_2=your_cerebras_api_key_2
+VITE_CEREBRAS_API_KEY_3=your_cerebras_api_key_3
+```
+
+### Architecture Changes
+1. **AuthContext.tsx** - Simplified to demo-only mode
+   - Removed Supabase client dependency
+   - Single demo user with localStorage persistence
+   - `signInAsDemo()` function for one-click access
+
+2. **storage.ts** - Updated API key management
+   - `getSystemApiKeys()` reads 6 keys from environment
+   - `loadAPIKeyConfig()` automatically includes system keys
+   - System keys marked with `isSystemKey: true`
+
+3. **SignInPage.tsx** - Simplified entry point
+   - Single "Start Demo" button
+   - No email/password fields
+   - Direct navigation to app after demo start
+
+4. **SignUpPage.tsx** - Redirects to sign-in
+   - Demo-only mode, no registration needed
+
+5. **ProtectedRoute.tsx** - Simplified
+   - Removed loading states
+   - Direct redirect to sign-in if no user
+
+6. **Navbar.tsx** & **SettingsPage.tsx** - Updated
+   - Changed `full_name` to `name` to match simplified User type
+
+### Files Removed
+- `src/lib/supabase.ts` - Supabase client removed
+- `supabase/schema.sql` - Database schema no longer needed
+- All Supabase-related functions from storage.ts
+
+### API Key Fallback System
+The app automatically uses the 6 API keys with fallback:
+1. Try primary key (key 1)
+2. On rate limit (429) or server error (5xx), try next key
+3. Continue until all keys exhausted
+4. Show error if all keys fail
+
+### Data Storage
+All data is stored in browser localStorage:
+- `docuchat_user` - Demo user session
+- `docuchat_state` - App state (chats, projects, documents)
+- `docuchat_api_keys_v2` - User API keys (if added)
+- `docuchat_theme` - Theme preference
+
+---
+
 ## Current Status
 
 ### ✅ Completed Features

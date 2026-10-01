@@ -1,5 +1,4 @@
 import type { AppState, ChatSession, Document, DocumentChunk, LLMConfig, Project, APIKey, APIKeyConfig, UserPreferences } from "./types";
-import { supabase, isSupabaseConfigured } from "./supabase";
 import { generateId } from "./utils";
 
 const STORAGE_KEY = "docuchat_state";
@@ -46,11 +45,25 @@ const DEFAULT_STATE: AppState = {
 export function loadAPIKeyConfig(): APIKeyConfig {
   try {
     const stored = localStorage.getItem(API_KEY_STORAGE_KEY);
-    if (stored) return JSON.parse(stored);
+    if (stored) {
+      const config = JSON.parse(stored);
+      // Always include system API keys from environment variables
+      const systemKeys = getSystemApiKeys();
+      const userKeys = config.keys.filter((k: APIKey) => !k.isSystemKey);
+      return {
+        ...config,
+        keys: [...systemKeys, ...userKeys],
+      };
+    }
   } catch (e) {
     console.error("Failed to load API key config:", e);
   }
-  return { ...DEFAULT_API_KEY_CONFIG };
+  
+  // Return config with system keys from environment
+  return {
+    ...DEFAULT_API_KEY_CONFIG,
+    keys: getSystemApiKeys(),
+  };
 }
 
 export function saveAPIKeyConfig(config: APIKeyConfig): void {
@@ -122,98 +135,7 @@ export function getSystemApiKeys(): APIKey[] {
   return systemKeys;
 }
 
-// Initialize system API keys for a user
-export async function initializeSystemKeys(userId: string): Promise<void> {
-  if (!isSupabaseConfigured()) return;
-
-  const systemKeys = getSystemApiKeys();
-  if (systemKeys.length === 0) return;
-
-  try {
-    // Check if user already has system keys
-    const { data: existingKeys } = await supabase
-      .from('user_api_keys')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('is_system_key', true);
-
-    if (existingKeys && existingKeys.length > 0) {
-      return; // Already initialized
-    }
-
-    // Insert system keys
-    const keysToInsert = systemKeys.map(key => ({
-      user_id: userId,
-      provider: key.provider,
-      name: key.name,
-      api_key: key.key,
-      is_preferred: key.isPreferred,
-      is_system_key: true,
-    }));
-
-    await supabase.from('user_api_keys').insert(keysToInsert);
-  } catch (error) {
-    console.error('Failed to initialize system keys:', error);
-  }
-}
-
-// Load API keys from Supabase (for authenticated users)
-export async function loadApiKeysFromSupabase(userId: string): Promise<APIKey[]> {
-  if (!isSupabaseConfigured()) return [];
-
-  try {
-    const { data, error } = await supabase
-      .from('user_api_keys')
-      .select('*')
-      .eq('user_id', userId)
-      .order('created_at', { ascending: true });
-
-    if (error) throw error;
-
-    return (data || []).map(row => ({
-      id: row.id,
-      provider: row.provider,
-      name: row.name,
-      key: row.api_key,
-      isPreferred: row.is_preferred,
-      isSystemKey: row.is_system_key,
-      createdAt: new Date(row.created_at).getTime(),
-    }));
-  } catch (error) {
-    console.error('Failed to load API keys from Supabase:', error);
-    return [];
-  }
-}
-
-// Save API key to Supabase
-export async function saveApiKeyToSupabase(userId: string, key: APIKey): Promise<void> {
-  if (!isSupabaseConfigured()) return;
-
-  try {
-    await supabase.from('user_api_keys').upsert({
-      id: key.id,
-      user_id: userId,
-      provider: key.provider,
-      name: key.name,
-      api_key: key.key,
-      is_preferred: key.isPreferred,
-      is_system_key: key.isSystemKey || false,
-    });
-  } catch (error) {
-    console.error('Failed to save API key to Supabase:', error);
-  }
-}
-
-// Delete API key from Supabase
-export async function deleteApiKeyFromSupabase(keyId: string): Promise<void> {
-  if (!isSupabaseConfigured()) return;
-
-  try {
-    await supabase.from('user_api_keys').delete().eq('id', keyId);
-  } catch (error) {
-    console.error('Failed to delete API key from Supabase:', error);
-  }
-}
+// Demo-only mode - no Supabase initialization needed
 
 export function loadState(): AppState {
   try {

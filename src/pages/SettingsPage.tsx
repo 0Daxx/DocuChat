@@ -917,7 +917,7 @@ function AccountSettings() {
   const { user, signOut, isDemoUser, isSupabaseAvailable } = useAuth();
   const navigate = useNavigate();
   const [editingName, setEditingName] = useState(false);
-  const [newName, setNewName] = useState(user?.full_name || "");
+  const [newName, setNewName] = useState(user?.name || "");
 
   const handleLogout = () => {
     signOut();
@@ -960,7 +960,7 @@ function AccountSettings() {
               </div>
             ) : (
               <div className="flex gap-2">
-                <Input value={user?.full_name || ""} disabled />
+                <Input value={user?.name || ""} disabled />
                 <Button variant="outline" onClick={() => setEditingName(true)}>Edit</Button>
               </div>
             )}
