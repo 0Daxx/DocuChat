@@ -10,6 +10,17 @@ import os
 from ..nlp import extract_document, chunk_pages, embed_texts, embed_query
 from ..storage import store_document, search_similar_chunks, get_document, list_documents, delete_document
 from ..llm import generate_answer
+from ..logging_system import (
+    log_document_upload,
+    log_document_delete,
+    log_extraction,
+    log_chunking,
+    log_embedding,
+    log_query,
+    log_error,
+    log_session,
+    log_message
+)
 
 router = APIRouter()
 
@@ -78,6 +89,15 @@ async def upload_document(file: UploadFile = File(...)):
                 detail="Could not extract any text from the document"
             )
         
+        # Log extraction
+        total_chars = sum(len(page.get("text", "")) for page in pages)
+        log_extraction(
+            document_id="pending",  # Will be updated after storage
+            page_count=len(pages),
+            total_chars=total_chars,
+            pages=pages
+        )
+        
         # Chunk the pages
         chunks = chunk_pages(pages)
         if not chunks:
@@ -86,9 +106,25 @@ async def upload_document(file: UploadFile = File(...)):
                 detail="Document is too short or contains no meaningful text"
             )
         
+        # Log chunking
+        log_chunking(
+            document_id="pending",  # Will be updated after storage
+            chunk_count=len(chunks),
+            chunks=chunks
+        )
+        
         # Generate embeddings for all chunks
         chunk_texts = [chunk["text"] for chunk in chunks]
         embeddings = embed_texts(chunk_texts)
+        
+        # Log embedding
+        from ..config import settings
+        log_embedding(
+            document_id="pending",  # Will be updated after storage
+            chunk_count=len(chunks),
+            embedding_dim=len(embeddings[0]) if embeddings else 0,
+            model_name=settings.EMBEDDING_MODEL
+        )
         
         # Store in Supabase
         document_id = store_document(
@@ -96,6 +132,15 @@ async def upload_document(file: UploadFile = File(...)):
             file_type=file_ext.strip('.'),
             chunks=chunks,
             embeddings=embeddings
+        )
+        
+        # Log document upload
+        log_document_upload(
+            document_id=document_id,
+            filename=file.filename,
+            file_type=file_ext.strip('.'),
+            file_size=len(file_content),
+            chunk_count=len(chunks)
         )
         
         return UploadResponse(
@@ -107,6 +152,11 @@ async def upload_document(file: UploadFile = File(...)):
     except HTTPException:
         raise
     except Exception as e:
+        log_error(
+            error_type="upload_error",
+            error_message=str(e),
+            context={"filename": file.filename, "file_type": file_ext}
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Error processing document: {str(e)}"
@@ -154,6 +204,15 @@ async def ask_question(request: AskRequest):
         # Generate answer using LLM
         result = await generate_answer(request.question, similar_chunks)
         
+        # Log query
+        log_query(
+            query=request.question,
+            document_id=request.document_id,
+            results_count=len(similar_chunks),
+            results=similar_chunks,
+            provider=result["provider"]
+        )
+        
         # Convert sources to response model
         sources = [
             SourceResponse(
@@ -173,6 +232,11 @@ async def ask_question(request: AskRequest):
     except HTTPException:
         raise
     except Exception as e:
+        log_error(
+            error_type="query_error",
+            error_message=str(e),
+            context={"question": request.question, "document_id": request.document_id}
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Error generating answer: {str(e)}"
@@ -222,11 +286,22 @@ async def remove_document(document_id: str):
         # Delete document and chunks
         delete_document(document_id)
         
+        # Log document deletion
+        log_document_delete(
+            document_id=document_id,
+            filename=doc["name"]
+        )
+        
         return {"message": "Document deleted successfully"}
         
     except HTTPException:
         raise
     except Exception as e:
+        log_error(
+            error_type="delete_error",
+            error_message=str(e),
+            context={"document_id": document_id}
+        )
         raise HTTPException(
             status_code=500,
             detail=f"Error deleting document: {str(e)}"
