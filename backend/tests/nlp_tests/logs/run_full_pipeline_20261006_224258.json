@@ -1,0 +1,39 @@
+{
+  "results": [
+    {
+      "file": "5th sem.pdf",
+      "status": "success",
+      "timings": {
+        "extraction": 6.3872,
+        "chunking": 0.0019,
+        "embedding": 0.3851
+      },
+      "total_time_sec": 6.7742,
+      "stats": {
+        "pages": 19,
+        "chunks": 93,
+        "vectors": 93
+      }
+    },
+    {
+      "file": "6th sem.pdf",
+      "status": "success",
+      "timings": {
+        "extraction": 7.2399,
+        "chunking": 0.0023,
+        "embedding": 0.3833
+      },
+      "total_time_sec": 7.6255,
+      "stats": {
+        "pages": 24,
+        "chunks": 103,
+        "vectors": 103
+      }
+    },
+    {
+      "file": "sample.txt",
+      "status": "error",
+      "error": "Unsupported file type: txt"
+    }
+  ]
+}

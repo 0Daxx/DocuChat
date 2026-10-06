@@ -1,0 +1,20 @@
+{
+  "results": [
+    {
+      "file": "5th sem.pdf",
+      "status": "success",
+      "vector_count": 93,
+      "dimension": 384,
+      "mean_norm": 1.0,
+      "duration_sec": 1.3872
+    },
+    {
+      "file": "6th sem.pdf",
+      "status": "success",
+      "vector_count": 103,
+      "dimension": 384,
+      "mean_norm": 1.0,
+      "duration_sec": 0.4296
+    }
+  ]
+}

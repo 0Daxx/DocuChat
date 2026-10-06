@@ -1,0 +1,25 @@
+{
+  "results": [
+    {
+      "file": "5th sem.pdf",
+      "type": "pdf",
+      "status": "success",
+      "pages": 19,
+      "total_chars": 38958,
+      "duration_sec": 6.1344
+    },
+    {
+      "file": "6th sem.pdf",
+      "type": "pdf",
+      "status": "success",
+      "pages": 24,
+      "total_chars": 43316,
+      "duration_sec": 6.1699
+    },
+    {
+      "file": "sample.txt",
+      "status": "error",
+      "error": "Unsupported file type: txt"
+    }
+  ]
+}

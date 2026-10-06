@@ -1,0 +1,19 @@
+{
+  "results": [
+    {
+      "file": "5th sem.pdf",
+      "status": "error",
+      "error": "name 'embed_texts' is not defined"
+    },
+    {
+      "file": "6th sem.pdf",
+      "status": "error",
+      "error": "name 'embed_texts' is not defined"
+    },
+    {
+      "file": "sample.txt",
+      "status": "error",
+      "error": "Unsupported file type: txt"
+    }
+  ]
+}
