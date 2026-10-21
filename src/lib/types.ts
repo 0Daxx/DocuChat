@@ -66,7 +66,7 @@ export type DocumentOwnerType = "chat" | "project";
 export interface Document {
   id: string;
   name: string;
-  type: "pdf" | "docx" | "txt";
+  type: "pdf" | "docx" | "txt" | "pptx";
   size: number;
   uploadedAt: number;
   chunkCount: number;

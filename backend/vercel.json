@@ -1,0 +1,22 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "app/main.py",
+      "use": "@vercel/python"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "app/main.py"
+    }
+  ],
+  "env": {
+    "SUPABASE_URL": "@supabase-url",
+    "SUPABASE_KEY": "@supabase-key",
+    "GROQ_API_KEY": "@groq-api-key",
+    "CEREBRAS_API_KEY": "@cerebras-api-key",
+    "LOCAL_LLM_URL": "@local-llm-url"
+  }
+}
