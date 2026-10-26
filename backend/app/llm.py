@@ -36,7 +36,7 @@ async def generate_with_groq(
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "mixtral-8x7b-32768",
+                    "model": "openai/gpt-oss-120b",
                     "messages": [
                         {
                             "role": "system",
@@ -90,7 +90,7 @@ async def generate_with_cerebras(
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": "cerebras-gpt-2.7b",
+                    "model": "qwen-3.8-27b",
                     "messages": [
                         {
                             "role": "system",

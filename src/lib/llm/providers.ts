@@ -115,6 +115,139 @@ export async function testConnection(config: LLMConfig): Promise<{ success: bool
   }
 }
 
+/**
+ * Comprehensive diagnostic check for LLM configuration.
+ * Returns detailed information about what's working and what's not.
+ */
+export async function diagnoseLLMConfig(config: LLMConfig): Promise<{
+  success: boolean;
+  checks: {
+    apiKey: { valid: boolean; message: string };
+    baseUrl: { valid: boolean; message: string };
+    model: { valid: boolean; message: string };
+    connection: { valid: boolean; message: string };
+    models: { valid: boolean; message: string; available?: string[] };
+  };
+  recommendations: string[];
+}> {
+  const checks = {
+    apiKey: { valid: true, message: "OK" },
+    baseUrl: { valid: true, message: "OK" },
+    model: { valid: true, message: "OK" },
+    connection: { valid: true, message: "OK" },
+    models: { valid: true, message: "OK", available: [] as string[] },
+  };
+  const recommendations: string[] = [];
+
+  // Check API key
+  const provider = LLM_PROVIDERS.find(p => p.id === config.provider);
+  if (provider?.requiresApiKey) {
+    if (!config.apiKey || config.apiKey.trim() === "") {
+      checks.apiKey = { valid: false, message: "API key is required but not provided" };
+      recommendations.push(`Add your ${provider.name} API key in Settings > API`);
+    } else if (config.apiKey.length < 10) {
+      checks.apiKey = { valid: false, message: "API key appears to be too short" };
+      recommendations.push("Verify your API key is complete");
+    }
+  }
+
+  // Check base URL
+  if (!config.baseUrl || config.baseUrl.trim() === "") {
+    checks.baseUrl = { valid: false, message: "Base URL is not configured" };
+    recommendations.push("Set the base URL for your provider");
+  } else {
+    try {
+      new URL(config.baseUrl);
+    } catch {
+      checks.baseUrl = { valid: false, message: "Base URL is not a valid URL" };
+      recommendations.push("Fix the base URL format");
+    }
+  }
+
+  // Check model
+  if (!config.model || config.model.trim() === "") {
+    checks.model = { valid: false, message: "No model selected" };
+    recommendations.push("Select a model in Settings > API");
+  }
+
+  // Test connection
+  if (checks.apiKey.valid && checks.baseUrl.valid) {
+    try {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (config.apiKey) {
+        headers["Authorization"] = `Bearer ${config.apiKey}`;
+      }
+
+      const response = await fetch(`${config.baseUrl}/models`, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(10000), // 10 second timeout
+      });
+
+      if (!response.ok) {
+        checks.connection = { 
+          valid: false, 
+          message: `Connection failed: ${response.status} ${response.statusText}` 
+        };
+        
+        if (response.status === 401 || response.status === 403) {
+          recommendations.push("API key is invalid or expired. Get a new one from the provider.");
+        } else if (response.status === 429) {
+          recommendations.push("Rate limit exceeded. Wait a moment or use a different API key.");
+        } else if (response.status >= 500) {
+          recommendations.push("Provider server error. Try again later or switch to a different provider.");
+        }
+      } else {
+        const data = await response.json();
+        let models: string[] = [];
+
+        if (data.data && Array.isArray(data.data)) {
+          models = data.data.map((m: any) => m.id).filter(Boolean);
+        } else if (Array.isArray(data)) {
+          models = data.map((m: any) => m.id || m.name).filter(Boolean);
+        }
+
+        checks.models.available = models;
+        
+        if (models.length === 0) {
+          checks.models = { valid: false, message: "No models available from provider", available: [] };
+          recommendations.push("Provider returned no models. Check your API key permissions.");
+        } else if (config.model && !models.includes(config.model)) {
+          checks.model = { 
+            valid: false, 
+            message: `Selected model "${config.model}" not available. Available: ${models.slice(0, 3).join(", ")}${models.length > 3 ? "..." : ""}` 
+          };
+          checks.models.available = models;
+          recommendations.push(`Select a valid model from the available list`);
+        }
+      }
+    } catch (error) {
+      checks.connection = { valid: false, message: "Network error" };
+      
+      if (error instanceof Error) {
+        if (error.name === "AbortError") {
+          checks.connection.message = "Connection timeout (10s)";
+          recommendations.push("Check your internet connection or try a different provider");
+        } else if (error.message.includes("Failed to fetch") || error.message.includes("NetworkError")) {
+          checks.connection.message = "Cannot reach provider";
+          recommendations.push("Check if the base URL is correct and the provider is accessible");
+          if (config.provider === "lmstudio" || config.provider === "llamacpp") {
+            recommendations.push("Make sure your local server is running");
+          }
+        } else {
+          checks.connection.message = error.message;
+        }
+      }
+    }
+  }
+
+  const success = Object.values(checks).every(c => c.valid);
+
+  return { success, checks, recommendations };
+}
+
 function buildSystemPrompt(sources: ChunkSource[]): string {
   if (sources.length === 0) {
     return `You are a helpful AI assistant. Answer questions clearly and accurately. If you don't know something, say so honestly.`;

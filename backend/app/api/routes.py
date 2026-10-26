@@ -306,3 +306,163 @@ async def remove_document(document_id: str):
             status_code=500,
             detail=f"Error deleting document: {str(e)}"
         )
+
+
+class DiagnosticRequest(BaseModel):
+    provider: str
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
+    model: Optional[str] = None
+
+
+class DiagnosticResponse(BaseModel):
+    success: bool
+    checks: dict
+    recommendations: List[str]
+
+
+@router.post("/diagnose", response_model=DiagnosticResponse)
+async def diagnose_configuration(request: DiagnosticRequest):
+    """
+    Diagnose LLM configuration issues.
+    Checks API key, base URL, model, and connection status.
+    """
+    from ..config import settings
+    
+    # Build config from request or use defaults
+    provider = request.provider
+    api_key = request.api_key
+    
+    # Get API key from environment if not provided
+    if not api_key:
+        if provider == "groq":
+            api_key = settings.GROQ_API_KEY
+        elif provider == "cerebras":
+            api_key = settings.CEREBRAS_API_KEY
+    
+    # Get base URL from request or use defaults
+    base_url = request.base_url
+    if not base_url:
+        if provider == "groq":
+            base_url = "https://api.groq.com/openai/v1"
+        elif provider == "cerebras":
+            base_url = "https://api.cerebras.ai/v1"
+        elif provider == "lmstudio":
+            base_url = settings.LOCAL_LLM_URL or "http://localhost:1234/v1"
+        elif provider == "llamacpp":
+            base_url = "http://localhost:8080/v1"
+    
+    # Get model from request or use defaults
+    model = request.model
+    if not model:
+        if provider == "groq":
+            model = "openai/gpt-oss-120b"
+        elif provider == "cerebras":
+            model = "qwen-3.8-27b"
+        elif provider in ["lmstudio", "llamacpp"]:
+            model = "local-model"
+    
+    checks = {
+        "api_key": {"valid": True, "message": "OK"},
+        "base_url": {"valid": True, "message": "OK"},
+        "model": {"valid": True, "message": "OK"},
+        "connection": {"valid": True, "message": "OK"},
+        "models": {"valid": True, "message": "OK", "available": []}
+    }
+    recommendations = []
+    
+    # Check API key
+    if provider in ["groq", "cerebras"]:
+        if not api_key:
+            checks["api_key"] = {"valid": False, "message": "API key is required but not provided"}
+            recommendations.append(f"Add your {provider.capitalize()} API key in Settings > API")
+        elif len(api_key) < 10:
+            checks["api_key"] = {"valid": False, "message": "API key appears to be too short"}
+            recommendations.append("Verify your API key is complete")
+    
+    # Check base URL
+    if not base_url:
+        checks["base_url"] = {"valid": False, "message": "Base URL is not configured"}
+        recommendations.append("Set the base URL for your provider")
+    else:
+        try:
+            from urllib.parse import urlparse
+            urlparse(base_url)
+        except Exception:
+            checks["base_url"] = {"valid": False, "message": "Base URL is not a valid URL"}
+            recommendations.append("Fix the base URL format")
+    
+    # Check model
+    if not model:
+        checks["model"] = {"valid": False, "message": "No model selected"}
+        recommendations.append("Select a model in Settings > API")
+    
+    # Test connection
+    if checks["api_key"]["valid"] and checks["base_url"]["valid"]:
+        import httpx
+        try:
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(
+                    f"{base_url}/models",
+                    headers=headers
+                )
+                
+                if not response.ok:
+                    checks["connection"] = {
+                        "valid": False,
+                        "message": f"Connection failed: {response.status_code} {response.reason_phrase}"
+                    }
+                    
+                    if response.status_code in [401, 403]:
+                        recommendations.append("API key is invalid or expired. Get a new one from the provider.")
+                    elif response.status_code == 429:
+                        recommendations.append("Rate limit exceeded. Wait a moment or use a different API key.")
+                    elif response.status_code >= 500:
+                        recommendations.append("Provider server error. Try again later or switch to a different provider.")
+                else:
+                    data = response.json()
+                    models = []
+                    
+                    if "data" in data and isinstance(data["data"], list):
+                        models = [m.get("id") for m in data["data"] if m.get("id")]
+                    elif isinstance(data, list):
+                        models = [m.get("id") or m.get("name") for m in data if m.get("id") or m.get("name")]
+                    
+                    checks["models"]["available"] = models
+                    
+                    if not models:
+                        checks["models"] = {"valid": False, "message": "No models available from provider", "available": []}
+                        recommendations.append("Provider returned no models. Check your API key permissions.")
+                    elif model and model not in models:
+                        checks["model"] = {
+                            "valid": False,
+                            "message": f'Selected model "{model}" not available. Available: {", ".join(models[:3])}{"..." if len(models) > 3 else ""}'
+                        }
+                        checks["models"]["available"] = models
+                        recommendations.append("Select a valid model from the available list")
+        except Exception as e:
+            checks["connection"] = {"valid": False, "message": "Network error"}
+            
+            error_msg = str(e)
+            if "timeout" in error_msg.lower():
+                checks["connection"]["message"] = "Connection timeout (10s)"
+                recommendations.append("Check your internet connection or try a different provider")
+            elif "failed to fetch" in error_msg.lower() or "network" in error_msg.lower():
+                checks["connection"]["message"] = "Cannot reach provider"
+                recommendations.append("Check if the base URL is correct and the provider is accessible")
+                if provider in ["lmstudio", "llamacpp"]:
+                    recommendations.append("Make sure your local server is running")
+            else:
+                checks["connection"]["message"] = error_msg
+    
+    success = all(check["valid"] for check in checks.values())
+    
+    return DiagnosticResponse(
+        success=success,
+        checks=checks,
+        recommendations=recommendations
+    )

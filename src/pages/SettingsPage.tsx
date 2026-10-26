@@ -12,42 +12,25 @@ import {
   Settings as SettingsIcon,
   CreditCard,
   Key,
-  Cpu,
-  MessageSquare,
-  Palette,
-  User,
-  Info,
   Plus,
   Trash2,
   Star,
-  Download,
-  Upload,
-  Archive,
   AlertTriangle,
   CheckCircle,
-  Eye,
-  EyeOff,
   Loader2,
 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
 import { useTheme } from "@/contexts/ThemeContext";
 import { loadState, saveState, loadAPIKeyConfig, saveAPIKeyConfig, getPreferredKey, maskApiKey, getSystemApiKeys } from "@/lib/storage";
 import { LLM_PROVIDERS, testConnection } from "@/lib/llm/providers";
-import { MODEL_REGISTRY, getModelsByProvider } from "@/lib/llm/modelRegistry";
 import { generateId } from "@/lib/utils";
-import type { LLMProviderType, APIKey, APIKeyConfig, UserPreferences, ChatSession } from "@/lib/types";
+import type { LLMProviderType, APIKey, UserPreferences } from "@/lib/types";
 
-type SettingsSection = "general" | "usage" | "api" | "models" | "chats" | "personalisation" | "account" | "about";
+type SettingsSection = "general" | "usage" | "api";
 
 const SETTINGS_SECTIONS: { id: SettingsSection; label: string; icon: React.ElementType }[] = [
   { id: "general", label: "General", icon: SettingsIcon },
   { id: "usage", label: "Usage & Billing", icon: CreditCard },
   { id: "api", label: "API", icon: Key },
-  { id: "models", label: "Models", icon: Cpu },
-  { id: "chats", label: "Chats", icon: MessageSquare },
-  { id: "personalisation", label: "Personalisation", icon: Palette },
-  { id: "account", label: "Account", icon: User },
-  { id: "about", label: "About", icon: Info },
 ];
 
 export function SettingsPage() {
@@ -87,11 +70,6 @@ export function SettingsPage() {
           {activeSection === "general" && <GeneralSettings />}
           {activeSection === "usage" && <UsageSettings />}
           {activeSection === "api" && <APISettings />}
-          {activeSection === "models" && <ModelsSettings />}
-          {activeSection === "chats" && <ChatsSettings />}
-          {activeSection === "personalisation" && <PersonalisationSettings />}
-          {activeSection === "account" && <AccountSettings />}
-          {activeSection === "about" && <AboutSettings />}
         </div>
       </div>
     </div>
@@ -356,6 +334,50 @@ function APISettings() {
     setTestingKey(null);
   };
 
+  const [diagnosticResult, setDiagnosticResult] = useState<any>(null);
+  const [runningDiagnostic, setRunningDiagnostic] = useState(false);
+
+  const handleRunDiagnostics = async () => {
+    setRunningDiagnostic(true);
+    setDiagnosticResult(null);
+
+    try {
+      const response = await fetch("http://localhost:8000/api/diagnose", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: state.llmConfig.provider,
+          api_key: state.llmConfig.apiKey,
+          base_url: state.llmConfig.baseUrl,
+          model: state.llmConfig.model,
+        }),
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        setDiagnosticResult(result);
+      } else {
+        setDiagnosticResult({
+          success: false,
+          checks: {
+            connection: { valid: false, message: "Backend not reachable" }
+          },
+          recommendations: ["Make sure the backend server is running on http://localhost:8000"]
+        });
+      }
+    } catch (error) {
+      setDiagnosticResult({
+        success: false,
+        checks: {
+          connection: { valid: false, message: "Network error" }
+        },
+        recommendations: ["Check if the backend server is running", "Verify your network connection"]
+      });
+    } finally {
+      setRunningDiagnostic(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -527,6 +549,94 @@ function APISettings() {
 
       <Card>
         <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle>Configuration Diagnostics</CardTitle>
+              <CardDescription>Check your LLM configuration for issues</CardDescription>
+            </div>
+            <Button 
+              onClick={handleRunDiagnostics} 
+              disabled={runningDiagnostic}
+              variant="outline"
+            >
+              {runningDiagnostic ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Running...
+                </>
+              ) : (
+                "Run Diagnostics"
+              )}
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {diagnosticResult && (
+            <div className="space-y-4">
+              {/* Overall Status */}
+              <div className={`p-4 rounded-lg ${diagnosticResult.success ? 'bg-green-50 dark:bg-green-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}>
+                <div className="flex items-center gap-2">
+                  {diagnosticResult.success ? (
+                    <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                  ) : (
+                    <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+                  )}
+                  <span className="font-medium">
+                    {diagnosticResult.success ? 'All checks passed!' : 'Issues detected'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Individual Checks */}
+              <div className="space-y-2">
+                {Object.entries(diagnosticResult.checks).map(([key, check]: [string, any]) => (
+                  <div key={key} className="flex items-start gap-3 p-3 border rounded-lg">
+                    {check.valid ? (
+                      <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
+                    )}
+                    <div className="flex-1">
+                      <p className="font-medium text-sm capitalize">{key.replace('_', ' ')}</p>
+                      <p className="text-xs text-muted-foreground">{check.message}</p>
+                      {check.available && check.available.length > 0 && (
+                        <p className="text-xs text-muted-foreground mt-1">
+                          Available models: {check.available.slice(0, 5).join(', ')}
+                          {check.available.length > 5 && ` +${check.available.length - 5} more`}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Recommendations */}
+              {diagnosticResult.recommendations.length > 0 && (
+                <div className="p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20">
+                  <p className="font-medium text-sm mb-2">Recommendations:</p>
+                  <ul className="space-y-1">
+                    {diagnosticResult.recommendations.map((rec: string, idx: number) => (
+                      <li key={idx} className="text-xs text-muted-foreground flex items-start gap-2">
+                        <span className="text-blue-500">•</span>
+                        {rec}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {!diagnosticResult && !runningDiagnostic && (
+            <p className="text-sm text-muted-foreground text-center py-4">
+              Click "Run Diagnostics" to check your LLM configuration
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>Fallback Behavior</CardTitle>
           <CardDescription>Configure what happens when your preferred key fails</CardDescription>
         </CardHeader>
@@ -623,472 +733,4 @@ function APISettings() {
   );
 }
 
-// Models Settings
-function ModelsSettings() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Models</h2>
-        <p className="text-muted-foreground">View available models and their capabilities</p>
-      </div>
 
-      {LLM_PROVIDERS.map((provider) => {
-        const models = getModelsByProvider(provider.id);
-        if (models.length === 0) return null;
-
-        return (
-          <Card key={provider.id}>
-            <CardHeader>
-              <CardTitle>{provider.name}</CardTitle>
-              <CardDescription>{provider.description}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {models.map((model) => (
-                  <div key={model.id} className="p-3 border rounded-lg">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <p className="font-medium">{model.name}</p>
-                        <p className="text-xs text-muted-foreground">Family: {model.family}</p>
-                      </div>
-                      <Badge variant={model.available ? "default" : "secondary"}>
-                        {model.available ? "Available" : "Unavailable"}
-                      </Badge>
-                    </div>
-                    {model.contextWindow && (
-                      <p className="text-xs text-muted-foreground mb-2">
-                        Context Window: {model.contextWindow.toLocaleString()} tokens
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-1 mb-2">
-                      {model.capabilities.map((cap) => (
-                        <Badge key={cap} variant="outline" className="text-xs">
-                          {cap}
-                        </Badge>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      Recommended for: {model.recommendedFor.join(", ")}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
-}
-
-// Chats Settings
-function ChatsSettings() {
-  const [state, setState] = useState(loadState());
-  const [exporting, setExporting] = useState(false);
-  const [importing, setImporting] = useState(false);
-
-  const handleExport = () => {
-    setExporting(true);
-    try {
-      const exportData = {
-        version: "1.0",
-        exportedAt: Date.now(),
-        sessions: state.sessions,
-        archivedSessions: state.archivedSessions,
-        projects: state.projects,
-      };
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `docuchat-export-${new Date().toISOString().split("T")[0]}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (error) {
-      console.error("Export failed:", error);
-    }
-    setExporting(false);
-  };
-
-  const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setImporting(true);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const data = JSON.parse(event.target?.result as string);
-        if (!data.sessions || !Array.isArray(data.sessions)) {
-          alert("Invalid export file format");
-          return;
-        }
-
-        // Validate sessions
-        const validSessions = data.sessions.filter((s: any) => s.id && s.title && Array.isArray(s.messages));
-        const validArchived = data.archivedSessions?.filter((s: any) => s.id && s.title) || [];
-        const validProjects = data.projects?.filter((p: any) => p.id && p.name) || [];
-
-        const newState = {
-          ...state,
-          sessions: [...state.sessions, ...validSessions],
-          archivedSessions: [...state.archivedSessions, ...validArchived],
-          projects: [...state.projects, ...validProjects],
-        };
-        setState(newState);
-        saveState(newState);
-        alert(`Successfully imported ${validSessions.length} chats`);
-      } catch (error) {
-        alert("Failed to import: Invalid file format");
-      }
-      setImporting(false);
-    };
-    reader.readAsText(file);
-    e.target.value = "";
-  };
-
-  const handleArchiveAll = () => {
-    if (!confirm("Archive all chats? They will be moved to archived chats.")) return;
-    const newState = {
-      ...state,
-      archivedSessions: [...state.archivedSessions, ...state.sessions],
-      sessions: [],
-      activeSessionId: null,
-    };
-    setState(newState);
-    saveState(newState);
-  };
-
-  const handleDeleteAll = () => {
-    if (!confirm("Delete ALL chats? This action cannot be undone!")) return;
-    if (!confirm("Are you absolutely sure? All chat data will be permanently deleted.")) return;
-    const newState = {
-      ...state,
-      sessions: [],
-      archivedSessions: [],
-      activeSessionId: null,
-    };
-    setState(newState);
-    saveState(newState);
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Chats</h2>
-        <p className="text-muted-foreground">Manage your chat history</p>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Import & Export</CardTitle>
-          <CardDescription>Backup and restore your chats</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex gap-2">
-            <Button onClick={handleExport} disabled={exporting}>
-              {exporting ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Download className="h-4 w-4 mr-2" />}
-              Export Chats
-            </Button>
-            <Button variant="outline" onClick={() => document.getElementById("import-input")?.click()} disabled={importing}>
-              {importing ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Upload className="h-4 w-4 mr-2" />}
-              Import Chats
-            </Button>
-            <input id="import-input" type="file" accept=".json" onChange={handleImport} className="hidden" />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Export includes all chats, archived chats, and projects. Import validates data before adding.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Archive</CardTitle>
-          <CardDescription>Move chats to archive</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">
-            You have {state.sessions.length} active chats and {state.archivedSessions.length} archived chats.
-          </p>
-          <Button variant="outline" onClick={handleArchiveAll} disabled={state.sessions.length === 0}>
-            <Archive className="h-4 w-4 mr-2" />
-            Archive All Chats
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-red-600">Danger Zone</CardTitle>
-          <CardDescription>Irreversible actions</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">
-            This will permanently delete all chats and archived chats. This action cannot be undone.
-          </p>
-          <Button variant="destructive" onClick={handleDeleteAll}>
-            <Trash2 className="h-4 w-4 mr-2" />
-            Delete All Chats
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// Personalisation Settings
-function PersonalisationSettings() {
-  const [state, setState] = useState(loadState());
-
-  const handleSave = () => {
-    saveState(state);
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Personalisation</h2>
-        <p className="text-muted-foreground">Customize your chat experience</p>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>System Prompt</CardTitle>
-          <CardDescription>Custom instructions for the AI</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <textarea
-            value={state.preferences.systemPrompt}
-            onChange={(e) => setState({ ...state, preferences: { ...state.preferences, systemPrompt: e.target.value } })}
-            placeholder="You are a helpful assistant specialized in..."
-            className="w-full h-32 rounded-md border border-input bg-background px-3 py-2 text-sm"
-          />
-          <p className="text-xs text-muted-foreground mt-2">
-            This prompt will be prepended to all conversations.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Default Parameters</CardTitle>
-          <CardDescription>Default values for new chats</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Temperature: {state.preferences.defaultTemperature}</Label>
-            <input
-              type="range"
-              min="0"
-              max="2"
-              step="0.1"
-              value={state.preferences.defaultTemperature}
-              onChange={(e) => setState({ ...state, preferences: { ...state.preferences, defaultTemperature: parseFloat(e.target.value) } })}
-              className="w-full"
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Controls randomness. Lower = more focused, higher = more creative.
-            </p>
-          </div>
-          <div>
-            <Label>Max Tokens</Label>
-            <Input
-              type="number"
-              value={state.preferences.defaultMaxTokens}
-              onChange={(e) => setState({ ...state, preferences: { ...state.preferences, defaultMaxTokens: parseInt(e.target.value) || 4096 } })}
-              min={100}
-              max={32000}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Maximum length of AI responses.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Button onClick={handleSave}>Save Changes</Button>
-    </div>
-  );
-}
-
-// Account Settings
-function AccountSettings() {
-  const { user, signOut, isDemoUser, isSupabaseAvailable } = useAuth();
-  const navigate = useNavigate();
-  const [editingName, setEditingName] = useState(false);
-  const [newName, setNewName] = useState(user?.name || "");
-
-  const handleLogout = () => {
-    signOut();
-    navigate("/");
-  };
-
-  const handleDeleteAccount = () => {
-    if (!confirm("Are you sure you want to delete your account? This will remove all your data.")) return;
-    if (!confirm("This action is permanent and cannot be undone. Continue?")) return;
-
-    // Clear all data
-    localStorage.clear();
-    signOut();
-    navigate("/");
-  };
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">Account</h2>
-        <p className="text-muted-foreground">Manage your account settings</p>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Profile</CardTitle>
-          <CardDescription>Your account information</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>Email</Label>
-            <Input value={user?.email || ""} disabled />
-          </div>
-          <div>
-            <Label>Name</Label>
-            {editingName ? (
-              <div className="flex gap-2">
-                <Input value={newName} onChange={(e) => setNewName(e.target.value)} />
-                <Button onClick={() => setEditingName(false)}>Save</Button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <Input value={user?.name || ""} disabled />
-                <Button variant="outline" onClick={() => setEditingName(true)}>Edit</Button>
-              </div>
-            )}
-          </div>
-          {(isDemoUser || !isSupabaseAvailable) && (
-            <p className="text-sm text-muted-foreground">
-              {isDemoUser 
-                ? "You are using a demo account. Some features may be limited."
-                : "Supabase is not configured. Account changes are stored locally."}
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Security</CardTitle>
-          <CardDescription>Manage your security settings</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" disabled>
-            Change Password
-          </Button>
-          {!isSupabaseAvailable && (
-            <p className="text-sm text-muted-foreground mt-2">
-              Password management requires Supabase configuration.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Session</CardTitle>
-          <CardDescription>Manage your current session</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="outline" onClick={handleLogout}>
-            Log Out
-          </Button>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-red-600">Danger Zone</CardTitle>
-          <CardDescription>Irreversible actions</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground mb-4">
-            Deleting your account will permanently remove all your data, including chats, documents, and settings.
-          </p>
-          <Button variant="destructive" onClick={handleDeleteAccount}>
-            Delete Account
-          </Button>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-// About Settings
-function AboutSettings() {
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold">About</h2>
-        <p className="text-muted-foreground">Information about DocuChat</p>
-      </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>DocuChat</CardTitle>
-          <CardDescription>AI-powered document chat service</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Version</span>
-            <span className="font-mono text-sm">1.0.0</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Build</span>
-            <span className="font-mono text-sm">{new Date().toISOString().split("T")[0]}</span>
-          </div>
-          <Separator />
-          <div>
-            <p className="text-sm font-medium mb-2">Built with</p>
-            <div className="flex flex-wrap gap-2">
-              <Badge variant="outline">React</Badge>
-              <Badge variant="outline">TypeScript</Badge>
-              <Badge variant="outline">Tailwind CSS</Badge>
-              <Badge variant="outline">ShadCN UI</Badge>
-              <Badge variant="outline">Vite</Badge>
-            </div>
-          </div>
-          <Separator />
-          <div>
-            <p className="text-sm font-medium mb-2">Supported Providers</p>
-            <div className="flex flex-wrap gap-2">
-              {LLM_PROVIDERS.map((p) => (
-                <Badge key={p.id} variant="secondary">{p.name}</Badge>
-              ))}
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Links</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <a href="#" className="block text-sm text-primary hover:underline">Documentation</a>
-          <a href="#" className="block text-sm text-primary hover:underline">GitHub Repository</a>
-          <a href="#" className="block text-sm text-primary hover:underline">Report an Issue</a>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>License</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-sm text-muted-foreground">
-            MIT License - See LICENSE file for details
-          </p>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
