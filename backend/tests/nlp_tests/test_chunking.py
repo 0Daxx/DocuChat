@@ -113,20 +113,22 @@ def test_chunking(file_type: str = "pdf"):
             
         return chunks
         
-    except Exception as e:
-        print(f"❌ Chunking failed: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return None
+    # except Exception as e:
+    #     print(f"❌ Chunking failed: {str(e)}")
+    #     import traceback
+    #     traceback.print_exc()
+    #     return None
 
 
 def test_all_file_types():
     """Test chunking for all file types."""
     results = {}
-    
-    for file_type in ["pdf", "docx", "txt"]:
-        chunks = test_chunking(file_type)
-        results[file_type] = chunks
+    try:
+        for file_type in ["pdf", "docx", "txt"]:
+            chunks = test_chunking(file_type)
+            results[file_type] = chunks
+    except Exception as e:
+        print(f"❌ Chunking failed: {str(e)}")
     
     return results
 
