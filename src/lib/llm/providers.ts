@@ -20,7 +20,7 @@ export const LLM_PROVIDERS: LLMProviderOption[] = [
     name: "Groq",
     description: "Fast cloud inference with GPT-OSS and Qwen models",
     defaultBaseUrl: "https://api.groq.com/openai/v1",
-    models: ["openai/gpt-oss-120b", "qwen/qwen3.8-27b"],
+    models: [], // Will be fetched dynamically
     requiresApiKey: true,
   },
   {
@@ -28,24 +28,8 @@ export const LLM_PROVIDERS: LLMProviderOption[] = [
     name: "Cerebras",
     description: "Ultra-fast inference on wafer-scale engines",
     defaultBaseUrl: "https://api.cerebras.ai/v1",
-    models: ["qwen-3.8-27b", "gpt-oss-120b"],
+    models: [], // Will be fetched dynamically
     requiresApiKey: true,
-  },
-  {
-    id: "lmstudio",
-    name: "LM Studio",
-    description: "Local inference via LM Studio server",
-    defaultBaseUrl: "http://localhost:1234/v1",
-    models: ["local-model"],
-    requiresApiKey: false,
-  },
-  {
-    id: "llamacpp",
-    name: "llama.cpp",
-    description: "Local inference via llama.cpp server",
-    defaultBaseUrl: "http://localhost:8080/v1",
-    models: ["local-model"],
-    requiresApiKey: false,
   },
 ];
 
@@ -266,7 +250,7 @@ export async function testConnection(config: LLMConfig): Promise<{ success: bool
     const apiKeys = getAvailableApiKeys(config.provider);
     const apiKey = apiKeys.length > 0 ? apiKeys[0] : config.apiKey;
     
-    if (!apiKey && config.provider !== "lmstudio" && config.provider !== "llamacpp") {
+    if (!apiKey) {
       return { success: false, models: [] };
     }
 

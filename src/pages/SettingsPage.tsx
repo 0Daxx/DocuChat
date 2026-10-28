@@ -553,53 +553,7 @@ function APISettings() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Local Provider URLs</CardTitle>
-          <CardDescription>Configure base URLs for local LLM servers</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <Label>LM Studio URL</Label>
-            <Input
-              value={state.llmConfig.provider === "lmstudio" ? state.llmConfig.baseUrl : (import.meta.env.VITE_LMSTUDIO_DEFAULT_URL || "http://localhost:1234/v1")}
-              onChange={(e) => {
-                if (state.llmConfig.provider === "lmstudio") {
-                  const newConfig = { ...state.llmConfig, baseUrl: e.target.value };
-                  setState({ ...state, llmConfig: newConfig });
-                  saveState({ ...state, llmConfig: newConfig });
-                }
-              }}
-              placeholder="http://localhost:1234/v1"
-              disabled={state.llmConfig.provider !== "lmstudio"}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Default: {import.meta.env.VITE_LMSTUDIO_DEFAULT_URL || "http://localhost:1234/v1"}
-            </p>
-          </div>
-          <div>
-            <Label>llama.cpp URL</Label>
-            <Input
-              value={state.llmConfig.provider === "llamacpp" ? state.llmConfig.baseUrl : (import.meta.env.VITE_LLAMACPP_DEFAULT_URL || "http://localhost:8080/v1")}
-              onChange={(e) => {
-                if (state.llmConfig.provider === "llamacpp") {
-                  const newConfig = { ...state.llmConfig, baseUrl: e.target.value };
-                  setState({ ...state, llmConfig: newConfig });
-                  saveState({ ...state, llmConfig: newConfig });
-                }
-              }}
-              placeholder="http://localhost:8080/v1"
-              disabled={state.llmConfig.provider !== "llamacpp"}
-            />
-            <p className="text-xs text-muted-foreground mt-1">
-              Default: {import.meta.env.VITE_LLAMACPP_DEFAULT_URL || "http://localhost:8080/v1"}
-            </p>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            Switch to the respective provider in the chat settings to edit these URLs.
-          </p>
-        </CardContent>
-      </Card>
+
     </div>
   );
 }

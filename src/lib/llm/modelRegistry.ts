@@ -49,26 +49,6 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     recommendedFor: ["General purpose", "Complex reasoning", "Code generation"],
     available: true,
   },
-
-  // Local Models (LM Studio / llama.cpp)
-  {
-    id: "local-model",
-    name: "Local Model",
-    provider: "lmstudio",
-    family: "Any",
-    capabilities: ["chat", "custom"],
-    recommendedFor: ["Privacy-sensitive tasks", "Offline use", "Custom models"],
-    available: true,
-  },
-  {
-    id: "local-model",
-    name: "Local Model",
-    provider: "llamacpp",
-    family: "Any",
-    capabilities: ["chat", "custom"],
-    recommendedFor: ["Self-hosted", "Resource-efficient", "Custom models"],
-    available: true,
-  },
 ];
 
 export function getModelsByProvider(provider: LLMProviderType): ModelInfo[] {

@@ -51,9 +51,8 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
     const provider = LLM_PROVIDERS.find(p => p.id === providerId);
     if (provider) {
       // Restore saved API key for this provider if available
-      const isLocal = providerId === "lmstudio" || providerId === "llamacpp";
       const preferredKey = getPreferredKey(providerId);
-      const restoredApiKey = isLocal ? "" : (preferredKey?.key || "");
+      const restoredApiKey = preferredKey?.key || "";
 
       const newConfig = {
         ...localConfig,
@@ -128,7 +127,6 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
   };
 
   const currentProvider = LLM_PROVIDERS.find(p => p.id === localConfig.provider);
-  const isLocalProvider = localConfig.provider === "lmstudio" || localConfig.provider === "llamacpp";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -254,19 +252,8 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
                 <Input
                   value={localConfig.model}
                   onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
-                  placeholder={isLocalProvider ? "Auto-detected after connecting" : "Model name"}
-                  disabled={isLocalProvider && availableModels.length === 0}
+                  placeholder="Model name"
                 />
-              )}
-              {isLocalProvider && availableModels.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Using locally loaded model: <strong>{localConfig.model}</strong>
-                </p>
-              )}
-              {isLocalProvider && availableModels.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Connect to your local server to auto-detect the loaded model.
-                </p>
               )}
             </div>
 
