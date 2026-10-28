@@ -1,0 +1,60 @@
+{
+  "results": [
+    {
+      "file": "5th sem.pdf",
+      "type": "pdf",
+      "extraction": {
+        "status": "success",
+        "duration": 1.116,
+        "stats": {
+          "pages": 19,
+          "chars": 38958
+        }
+      },
+      "chunking": {
+        "status": "success",
+        "duration": 0.0006,
+        "stats": {
+          "chunks": 93,
+          "avg_size": 431.84
+        }
+      },
+      "embedding": {
+        "status": "error",
+        "duration": null,
+        "stats": {
+          "vectors": null,
+          "dim": null
+        }
+      }
+    },
+    {
+      "file": "6th sem.pdf",
+      "type": "pdf",
+      "extraction": {
+        "status": "success",
+        "duration": 1.4235,
+        "stats": {
+          "pages": 24,
+          "chars": 43316
+        }
+      },
+      "chunking": {
+        "status": "success",
+        "duration": 0.0011,
+        "stats": {
+          "chunks": 103,
+          "avg_size": 433.2
+        }
+      },
+      "embedding": {
+        "status": "error",
+        "duration": null,
+        "stats": {
+          "vectors": null,
+          "dim": null
+        }
+      }
+    }
+  ]
+}
