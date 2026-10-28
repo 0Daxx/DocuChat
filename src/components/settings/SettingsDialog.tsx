@@ -249,11 +249,24 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
                   </SelectContent>
                 </Select>
               ) : (
-                <Input
-                  value={localConfig.model}
-                  onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
-                  placeholder="Model name"
-                />
+                <div className="space-y-2">
+                  <Input
+                    value={localConfig.model}
+                    onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
+                    placeholder={connectionStatus === "error" ? "Connection failed - enter model manually" : "Click 'Connect & Fetch Models' first"}
+                    disabled={isLoadingModels}
+                  />
+                  {connectionStatus === "idle" && (
+                    <p className="text-xs text-muted-foreground">
+                      Click "Connect & Fetch Models" to load available models, or enter a model name manually
+                    </p>
+                  )}
+                  {connectionStatus === "error" && (
+                    <p className="text-xs text-orange-600">
+                      Could not fetch models. You can enter a model name manually or check your API key.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
 

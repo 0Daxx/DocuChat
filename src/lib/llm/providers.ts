@@ -82,7 +82,7 @@ ${contextParts}
 
 /**
  * Make a direct API call to an LLM provider with streaming support.
- * Implements automatic fallback to next API key on rate limit or error.
+ * Implements automatic fallback to next API key, then to next provider.
  */
 export async function streamChatCompletion(
   config: LLMConfig,
@@ -97,48 +97,120 @@ export async function streamChatCompletion(
     ...messages,
   ];
 
-  // Get all available API keys for this provider
-  const apiKeys = getAvailableApiKeys(config.provider);
+  // Define provider order for fallback (Groq first, then Cerebras)
+  const providerOrder: LLMProviderType[] = ["groq", "cerebras"];
   
-  // If no keys from env, use the one from config
-  const keysToTry = apiKeys.length > 0 ? apiKeys : (config.apiKey ? [config.apiKey] : []);
-  
-  if (keysToTry.length === 0) {
-    throw new Error(`No API keys available for ${config.provider}. Please configure API keys in environment variables.`);
-  }
+  // Start with the configured provider, but allow fallback to others
+  const startIndex = providerOrder.indexOf(config.provider);
+  const providersToTry = [
+    providerOrder[startIndex],
+    ...providerOrder.filter((_, idx) => idx !== startIndex)
+  ];
 
   let lastError: Error | null = null;
 
-  // Try each API key with fallback
-  for (let keyIndex = 0; keyIndex < keysToTry.length; keyIndex++) {
-    const apiKey = keysToTry[keyIndex];
+  // Try each provider
+  for (const providerId of providersToTry) {
+    const provider = LLM_PROVIDERS.find(p => p.id === providerId);
+    if (!provider) continue;
+
+    // Get all available API keys for this provider
+    const apiKeys = getAvailableApiKeys(providerId);
     
-    try {
-      const result = await tryApiCall(
-        config,
-        apiKey,
-        allMessages,
-        onChunk,
-        signal
-      );
-      return result;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
+    // If no keys from env, skip this provider
+    if (apiKeys.length === 0) {
+      console.warn(`No API keys available for ${providerId}, skipping...`);
+      continue;
+    }
+
+    // Create a config for this provider
+    const providerConfig: LLMConfig = {
+      ...config,
+      provider: providerId,
+      baseUrl: provider.defaultBaseUrl,
+      // Use the first available model for this provider if current model doesn't exist
+      model: config.model || (await getFirstAvailableModel(providerId, apiKeys[0], provider.defaultBaseUrl)),
+    };
+
+    // Try each API key for this provider
+    for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex++) {
+      const apiKey = apiKeys[keyIndex];
       
-      // Check if error is retryable (rate limit or server error)
-      const isRetryable = isRetryableError(error);
-      
-      if (!isRetryable || keyIndex === keysToTry.length - 1) {
-        // Not retryable or last key, throw error
-        throw lastError;
+      try {
+        console.log(`Trying ${providerId} with API key ${keyIndex + 1}/${apiKeys.length}...`);
+        const result = await tryApiCall(
+          providerConfig,
+          apiKey,
+          allMessages,
+          onChunk,
+          signal
+        );
+        
+        // Success! Update the config to use this provider for future calls
+        console.log(`Successfully used ${providerId} with API key ${keyIndex + 1}`);
+        return result;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        // Check if error is retryable (rate limit or server error)
+        const isRetryable = isRetryableError(error);
+        
+        if (!isRetryable) {
+          // Not retryable (auth error, bad request, etc.), try next provider
+          console.warn(`${providerId} API key ${keyIndex + 1} failed with non-retryable error, trying next provider...`);
+          break; // Break out of key loop, try next provider
+        }
+        
+        // Retryable error, try next key
+        if (keyIndex < apiKeys.length - 1) {
+          console.warn(`${providerId} API key ${keyIndex + 1} failed, trying next key...`);
+        } else {
+          console.warn(`All ${providerId} API keys failed, trying next provider...`);
+        }
       }
-      
-      // Log fallback attempt
-      console.warn(`API key ${keyIndex + 1} failed, trying next key...`);
     }
   }
 
-  throw lastError || new Error("All API keys failed");
+  // All providers and keys failed
+  throw lastError || new Error("All API keys and providers failed");
+}
+
+/**
+ * Get the first available model for a provider by calling the /models endpoint.
+ */
+async function getFirstAvailableModel(
+  providerId: LLMProviderType,
+  apiKey: string,
+  baseUrl: string
+): Promise<string> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    };
+
+    const response = await fetch(`${baseUrl}/models`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const models = data.data || data;
+    
+    if (Array.isArray(models) && models.length > 0) {
+      return models[0].id || models[0];
+    }
+
+    throw new Error("No models available");
+  } catch (error) {
+    console.error(`Failed to get models for ${providerId}:`, error);
+    // Return a default model name as fallback
+    return providerId === "groq" ? "llama-3.3-70b-versatile" : "llama3.1-70b";
+  }
 }
 
 /**
