@@ -1,0 +1,34 @@
+{
+  "results": [
+    {
+      "file": "5th sem.pdf",
+      "status": "success",
+      "timings": {
+        "extraction": 6.2157,
+        "chunking": 0.0018,
+        "embedding": 0.3771
+      },
+      "total_time_sec": 6.5946,
+      "stats": {
+        "pages": 19,
+        "chunks": 93,
+        "vectors": 93
+      }
+    },
+    {
+      "file": "6th sem.pdf",
+      "status": "success",
+      "timings": {
+        "extraction": 7.095,
+        "chunking": 0.002,
+        "embedding": 0.4058
+      },
+      "total_time_sec": 7.5028,
+      "stats": {
+        "pages": 24,
+        "chunks": 103,
+        "vectors": 103
+      }
+    }
+  ]
+}

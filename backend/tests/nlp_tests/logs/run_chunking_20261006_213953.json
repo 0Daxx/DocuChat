@@ -1,0 +1,18 @@
+{
+  "results": [
+    {
+      "file": "5th sem.pdf",
+      "status": "success",
+      "chunk_count": 93,
+      "avg_chunk_size": 431.84,
+      "duration_sec": 0.0025
+    },
+    {
+      "file": "6th sem.pdf",
+      "status": "success",
+      "chunk_count": 103,
+      "avg_chunk_size": 433.2,
+      "duration_sec": 0.0022
+    }
+  ]
+}
