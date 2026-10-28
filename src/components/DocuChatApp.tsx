@@ -6,16 +6,22 @@ import {
   loadState,
   saveState,
   saveSession,
+  saveDocuments,
+  saveChunks,
   saveLLMConfig,
   saveSidebarState,
 } from "@/lib/storage";
-import { uploadDocument as uploadDocumentApi, askQuestion as askQuestionApi, deleteDocument as deleteDocumentApi } from "@/lib/api";
+import { parseDocument } from "@/lib/documents/parser";
+import { chunkText } from "@/lib/documents/chunker";
+import { vectorStore } from "@/lib/documents/vectorStore";
+import { streamChatCompletion } from "@/lib/llm/providers";
 import { generateId } from "@/lib/utils";
 import type {
   AppState,
   ChatSession,
   ChatMessage,
   Document,
+  DocumentChunk,
   LLMConfig,
   ChunkSource,
   Project,
@@ -30,13 +36,38 @@ export function DocuChatApp() {
   const [isStreaming, setIsStreaming] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingError, setProcessingError] = useState<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
+  // Rebuild vector store when chunks change
+  useEffect(() => {
+    if (state.chunks.length > 0) {
+      vectorStore.buildIndex(state.chunks);
+    }
+  }, [state.chunks]);
+
+  // Persist state changes
   useEffect(() => {
     saveState(state);
   }, [state]);
 
   const activeSession = state.sessions.find(s => s.id === state.activeSessionId) || null;
 
+  // Get documents accessible to a chat (chat's own + project's if in project)
+  const getChatDocumentIds = useCallback((session: ChatSession): string[] => {
+    const chatDocs = state.documents
+      .filter(d => d.ownerType === "chat" && d.ownerId === session.id)
+      .map(d => d.id);
+
+    if (session.projectId) {
+      const projectDocs = state.documents
+        .filter(d => d.ownerType === "project" && d.ownerId === session.projectId)
+        .map(d => d.id);
+      return [...chatDocs, ...projectDocs];
+    }
+    return chatDocs;
+  }, [state.documents]);
+
+  // Create new chat session
   const handleNewChat = useCallback((projectId?: string) => {
     const newSession: ChatSession = {
       id: generateId(),
@@ -65,6 +96,7 @@ export function DocuChatApp() {
     });
   }, []);
 
+  // Create new project
   const handleNewProject = useCallback(() => {
     const colorIndex = state.projects.length % PROJECT_COLORS.length;
     const newProject: Project = {
@@ -82,6 +114,7 @@ export function DocuChatApp() {
     }));
   }, [state.projects.length]);
 
+  // Rename project
   const handleRenameProject = useCallback((projectId: string, name: string) => {
     setState(prev => ({
       ...prev,
@@ -91,32 +124,50 @@ export function DocuChatApp() {
     }));
   }, []);
 
+  // Delete project
   const handleDeleteProject = useCallback((projectId: string) => {
     setState(prev => {
       const projects = prev.projects.filter(p => p.id !== projectId);
+      // Remove project-owned documents and chunks
+      const documents = prev.documents.filter(d => !(d.ownerType === "project" && d.ownerId === projectId));
+      const chunks = prev.chunks.filter(c => documents.find(d => d.id === c.documentId));
+      // Detach chats
       const sessions = prev.sessions.map(s =>
         s.projectId === projectId ? { ...s, projectId: null } : s
       );
       return {
         ...prev,
         projects,
+        documents,
+        chunks,
         sessions,
         activeProjectId: prev.activeProjectId === projectId ? null : prev.activeProjectId,
       };
     });
+    // Rebuild vector store
+    setTimeout(() => {
+      const currentState = loadState();
+      if (currentState.chunks.length > 0) {
+        vectorStore.buildIndex(currentState.chunks);
+      }
+    }, 0);
   }, []);
 
+  // Attach chat to project
   const handleAttachChatToProject = useCallback((chatId: string, projectId: string) => {
     setState(prev => {
+      // Remove from any existing project
       const projects = prev.projects.map(p => ({
         ...p,
         chatIds: p.chatIds.filter(id => id !== chatId),
       }));
+      // Add to new project
       const updatedProjects = projects.map(p =>
         p.id === projectId
           ? { ...p, chatIds: [...p.chatIds, chatId], updatedAt: Date.now() }
           : p
       );
+      // Update session
       const sessions = prev.sessions.map(s =>
         s.id === chatId ? { ...s, projectId } : s
       );
@@ -124,6 +175,7 @@ export function DocuChatApp() {
     });
   }, []);
 
+  // Detach chat from project
   const handleDetachChatFromProject = useCallback((chatId: string) => {
     setState(prev => {
       const projects = prev.projects.map(p => ({
@@ -137,14 +189,17 @@ export function DocuChatApp() {
     });
   }, []);
 
+  // Select session
   const handleSelectSession = useCallback((id: string) => {
     setState(prev => ({ ...prev, activeSessionId: id }));
   }, []);
 
+  // Select project (for sidebar navigation)
   const handleSelectProject = useCallback((id: string | null) => {
     setState(prev => ({ ...prev, activeProjectId: id }));
   }, []);
 
+  // Delete session
   const handleDeleteSession = useCallback((id: string) => {
     setState(prev => {
       const projects = prev.projects.map(p => ({
@@ -152,17 +207,30 @@ export function DocuChatApp() {
         chatIds: p.chatIds.filter(cid => cid !== id),
       }));
       const sessions = prev.sessions.filter(s => s.id !== id);
+      // Remove chat-owned documents and chunks
+      const documents = prev.documents.filter(d => !(d.ownerType === "chat" && d.ownerId === id));
+      const chunks = prev.chunks.filter(c => documents.find(d => d.id === c.documentId));
       return {
         ...prev,
         projects,
         sessions,
+        documents,
+        chunks,
         activeSessionId: prev.activeSessionId === id
           ? (sessions.length > 0 ? sessions[0].id : null)
           : prev.activeSessionId,
       };
     });
+    // Rebuild vector store
+    setTimeout(() => {
+      const currentState = loadState();
+      if (currentState.chunks.length > 0) {
+        vectorStore.buildIndex(currentState.chunks);
+      }
+    }, 0);
   }, []);
 
+  // Toggle sidebar
   const handleToggleSidebar = useCallback(() => {
     setState(prev => {
       const collapsed = !prev.sidebarCollapsed;
@@ -171,156 +239,248 @@ export function DocuChatApp() {
     });
   }, []);
 
+  // Save LLM config
   const handleSaveLLMConfig = useCallback((config: LLMConfig) => {
     saveLLMConfig(config);
     setState(prev => ({ ...prev, llmConfig: config }));
   }, []);
 
+  // Upload documents for a specific owner (chat or project)
   const handleUploadDocuments = useCallback(async (files: FileList, ownerId: string, ownerType: DocumentOwnerType) => {
     setIsProcessing(true);
     setProcessingError(null);
 
     try {
       const newDocuments: Document[] = [];
+      const newChunks: DocumentChunk[] = [];
 
       for (const file of Array.from(files)) {
         const ext = file.name.split(".").pop()?.toLowerCase();
-        if (!["pdf", "docx", "pptx", "txt"].includes(ext || "")) {
-          throw new Error(`Unsupported file type: .${ext}`);
+        if (!["pdf", "docx", "txt"].includes(ext || "")) {
+          throw new Error(`Unsupported file type: .${ext}. Please upload PDF, DOCX, or TXT files.`);
         }
 
-        // Upload to backend
-        const response = await uploadDocumentApi(file);
-        
+        const text = await parseDocument(file);
+        if (!text.trim()) {
+          throw new Error(`No text could be extracted from ${file.name}`);
+        }
+
+        const docId = generateId();
+        const chunks = chunkText(text, docId, file.name);
+
         const doc: Document = {
-          id: response.document_id,
+          id: docId,
           name: file.name,
-          type: ext as "pdf" | "docx" | "pptx" | "txt",
+          type: ext as "pdf" | "docx" | "txt",
           size: file.size,
           uploadedAt: Date.now(),
-          chunkCount: response.chunk_count,
+          chunkCount: chunks.length,
           ownerId,
           ownerType,
         };
 
         newDocuments.push(doc);
+        newChunks.push(...chunks);
       }
 
+      // Update state
       setState(prev => {
         const documents = [...prev.documents, ...newDocuments];
-        return { ...prev, documents };
+        const chunks = [...prev.chunks, ...newChunks];
+        saveDocuments(documents);
+        saveChunks(chunks);
+        return { ...prev, documents, chunks };
       });
+
+      // Rebuild vector store
+      const allChunks = [...state.chunks, ...newChunks];
+      vectorStore.buildIndex(allChunks);
     } catch (error) {
       setProcessingError(error instanceof Error ? error.message : "Failed to process document");
     } finally {
       setIsProcessing(false);
     }
+  }, [state.chunks]);
+
+  // Delete document
+  const handleDeleteDocument = useCallback((documentId: string) => {
+    setState(prev => {
+      const documents = prev.documents.filter(d => d.id !== documentId);
+      const chunks = prev.chunks.filter(c => c.documentId !== documentId);
+      saveDocuments(documents);
+      saveChunks(chunks);
+
+      if (chunks.length > 0) {
+        vectorStore.buildIndex(chunks);
+      }
+
+      return { ...prev, documents, chunks };
+    });
   }, []);
 
-  const handleDeleteDocument = useCallback(async (documentId: string) => {
-    try {
-      await deleteDocumentApi(documentId);
-      setState(prev => {
-        const documents = prev.documents.filter(d => d.id !== documentId);
-        return { ...prev, documents };
-      });
-    } catch (error) {
-      console.error("Failed to delete document:", error);
-    }
-  }, []);
-
+  // Send message
   const handleSendMessage = useCallback(async (content: string) => {
     if (!activeSession) {
       handleNewChat();
       return;
     }
 
-    const userMessage: ChatMessage = {
-      id: generateId(),
-      role: "user",
-      content,
-      timestamp: Date.now(),
+    // Validate LLM configuration
+    if (!state.llmConfig.model) {
+      const errorMessage: ChatMessage = {
+        id: generateId(),
+        role: "assistant",
+        content: "⚠️ No model configured. Please go to Settings and connect to your LLM provider.",
+        timestamp: Date.now(),
+      };
+      const updatedSession: ChatSession = {
+        ...activeSession,
+        updatedAt: Date.now(),
+        messages: [...activeSession.messages, { id: generateId(), role: "user", content, timestamp: Date.now() }, errorMessage],
+      };
+      setState(prev => ({
+        ...prev,
+        sessions: prev.sessions.map(s => s.id === updatedSession.id ? updatedSession : s),
+      }));
+      return;
+    }
+
+    // Check if this is a regeneration request
+    const regenerateMatch = content.match(/^\[REGENERATE:([^\]]+)\](.*)$/);
+    const isRegeneration = !!regenerateMatch;
+    const regenerateMessageId = regenerateMatch?.[1];
+    const actualContent = regenerateMatch ? regenerateMatch[2] : content;
+
+    const userMessage: ChatMessage = { id: generateId(), role: "user", content: actualContent, timestamp: Date.now() };
+    const documentIds = getChatDocumentIds(activeSession);
+    const sources: ChunkSource[] = vectorStore.search(actualContent, 5, documentIds);
+    const assistantMessage: ChatMessage = {
+      id: generateId(), role: "assistant", content: "", timestamp: Date.now(),
+      sources: sources.length > 0 ? sources : undefined,
     };
 
-    const assistantMessage: ChatMessage = {
-      id: generateId(),
-      role: "assistant",
-      content: "",
-      timestamp: Date.now(),
-    };
+    // For regeneration, replace the previous assistant message
+    let updatedMessages = [...activeSession.messages];
+    if (isRegeneration && regenerateMessageId) {
+      const msgIndex = updatedMessages.findIndex(m => m.id === regenerateMessageId);
+      if (msgIndex !== -1) {
+        updatedMessages[msgIndex] = assistantMessage;
+      }
+    } else {
+      updatedMessages.push(userMessage, assistantMessage);
+    }
 
     const updatedSession: ChatSession = {
       ...activeSession,
-      title: activeSession.messages.length === 0 ? content.slice(0, 50) : activeSession.title,
+      title: activeSession.messages.length === 0 ? actualContent.slice(0, 50) : activeSession.title,
       updatedAt: Date.now(),
-      messages: [...activeSession.messages, userMessage, assistantMessage],
+      messages: updatedMessages,
     };
 
-    setState(prev => ({
-      ...prev,
-      sessions: prev.sessions.map(s => s.id === updatedSession.id ? updatedSession : s),
-    }));
+    setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === updatedSession.id ? updatedSession : s) }));
 
     setIsStreaming(true);
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
 
     try {
-      // Ask question to backend
-      const response = await askQuestionApi(content);
+      const historyMessages = activeSession.messages.filter(m => m.role !== "system").slice(-10).map(m => ({ role: m.role, content: m.content }));
+      historyMessages.push({ role: "user", content: actualContent });
+      let fullContent = "";
+
+      await streamChatCompletion(state.llmConfig, historyMessages, sources, (chunk) => {
+        fullContent += chunk;
+        setState(prev => ({
+          ...prev,
+          sessions: prev.sessions.map(s => {
+            if (s.id !== updatedSession.id) return s;
+            const messages = [...s.messages];
+            const targetIndex = isRegeneration && regenerateMessageId 
+              ? messages.findIndex(m => m.id === regenerateMessageId)
+              : messages.findIndex(m => m.id === assistantMessage.id);
+            if (targetIndex !== -1 && messages[targetIndex]?.role === "assistant") {
+              messages[targetIndex] = { ...messages[targetIndex], content: fullContent };
+            }
+            return { ...s, messages };
+          }),
+        }));
+      }, abortController.signal);
+
+      // Finalize the session with the complete response
+      const finalMessages = [...updatedSession.messages];
+      const targetIndex = isRegeneration && regenerateMessageId 
+        ? finalMessages.findIndex(m => m.id === regenerateMessageId)
+        : finalMessages.findIndex(m => m.id === assistantMessage.id);
       
-      // Convert sources to ChunkSource format
-      const sources: ChunkSource[] = response.sources.map(s => ({
-        chunkId: `chunk-${s.page_number}-${s.chunk_index}`,
-        documentName: "Document", // Backend doesn't return doc name in sources
-        content: s.text,
-        score: 1.0, // Backend doesn't return score
-      }));
+      if (targetIndex !== -1) {
+        finalMessages[targetIndex] = { ...finalMessages[targetIndex], content: fullContent };
+      }
 
       const finalSession: ChatSession = {
         ...updatedSession,
-        messages: [
-          ...updatedSession.messages.slice(0, -1),
-          { ...assistantMessage, content: response.answer, sources },
-        ],
+        messages: finalMessages,
       };
-
       saveSession(finalSession);
-      setState(prev => ({
-        ...prev,
-        sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s),
-      }));
+      setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s) }));
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "An error occurred";
-      const finalSession: ChatSession = {
-        ...updatedSession,
-        messages: [
-          ...updatedSession.messages.slice(0, -1),
-          { ...assistantMessage, content: `Error: ${errorMessage}` },
-        ],
-      };
-      saveSession(finalSession);
-      setState(prev => ({
-        ...prev,
-        sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s),
-      }));
+      if (error instanceof Error && error.name === "AbortError") {
+        const finalMessages = [...updatedSession.messages];
+        const targetIndex = isRegeneration && regenerateMessageId 
+          ? finalMessages.findIndex(m => m.id === regenerateMessageId)
+          : finalMessages.findIndex(m => m.id === assistantMessage.id);
+        
+        if (targetIndex !== -1) {
+          finalMessages[targetIndex] = { ...finalMessages[targetIndex], content: finalMessages[targetIndex].content || "[Response cancelled]" };
+        }
+
+        const finalSession: ChatSession = {
+          ...updatedSession,
+          messages: finalMessages,
+        };
+        saveSession(finalSession);
+        setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s) }));
+      } else {
+        const errorMessage = error instanceof Error ? error.message : "An error occurred";
+        const finalMessages = [...updatedSession.messages];
+        const targetIndex = isRegeneration && regenerateMessageId 
+          ? finalMessages.findIndex(m => m.id === regenerateMessageId)
+          : finalMessages.findIndex(m => m.id === assistantMessage.id);
+        
+        if (targetIndex !== -1) {
+          finalMessages[targetIndex] = { ...finalMessages[targetIndex], content: `Error: ${errorMessage}` };
+        }
+
+        const finalSession: ChatSession = {
+          ...updatedSession,
+          messages: finalMessages,
+        };
+        saveSession(finalSession);
+        setState(prev => ({ ...prev, sessions: prev.sessions.map(s => s.id === finalSession.id ? finalSession : s) }));
+      }
     } finally {
       setIsStreaming(false);
+      abortControllerRef.current = null;
     }
-  }, [activeSession, handleNewChat]);
+  }, [activeSession, state.llmConfig, getChatDocumentIds, handleNewChat]);
 
+  // Stop streaming
   const handleStopStreaming = useCallback(() => {
-    setIsStreaming(false);
+    abortControllerRef.current?.abort();
   }, []);
 
+  // Create initial session if none exists
   useEffect(() => {
     if (state.sessions.length === 0 && state.projects.length === 0) {
       handleNewChat();
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Get active project
   const activeProject = activeSession?.projectId
     ? state.projects.find(p => p.id === activeSession.projectId) || null
     : null;
 
+  // Get documents accessible in current chat context
   const accessibleDocuments = activeSession
     ? state.documents.filter(d => {
         if (d.ownerType === "chat" && d.ownerId === activeSession.id) return true;
@@ -331,6 +491,7 @@ export function DocuChatApp() {
 
   return (
     <div className="flex h-screen bg-background text-foreground overflow-hidden">
+      {/* Sidebar */}
       <Sidebar
         projects={state.projects}
         sessions={state.sessions}
@@ -350,6 +511,7 @@ export function DocuChatApp() {
         onOpenSettings={() => setSettingsOpen(true)}
       />
 
+      {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
         {activeSession ? (
           <ChatWindow
@@ -371,12 +533,15 @@ export function DocuChatApp() {
           <div className="flex-1 flex items-center justify-center">
             <div className="text-center">
               <h2 className="text-xl font-semibold mb-2">Welcome to DocuChat</h2>
-              <p className="text-muted-foreground">Click "New chat" in the sidebar to get started.</p>
+              <p className="text-muted-foreground">
+                Click "New chat" in the sidebar to get started.
+              </p>
             </div>
           </div>
         )}
       </main>
 
+      {/* Settings Dialog */}
       <SettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}

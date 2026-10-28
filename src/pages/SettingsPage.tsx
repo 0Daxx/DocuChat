@@ -334,49 +334,8 @@ function APISettings() {
     setTestingKey(null);
   };
 
-  const [diagnosticResult, setDiagnosticResult] = useState<any>(null);
-  const [runningDiagnostic, setRunningDiagnostic] = useState(false);
-
-  const handleRunDiagnostics = async () => {
-    setRunningDiagnostic(true);
-    setDiagnosticResult(null);
-
-    try {
-      const response = await fetch("http://localhost:8000/api/diagnose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          provider: state.llmConfig.provider,
-          api_key: state.llmConfig.apiKey,
-          base_url: state.llmConfig.baseUrl,
-          model: state.llmConfig.model,
-        }),
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        setDiagnosticResult(result);
-      } else {
-        setDiagnosticResult({
-          success: false,
-          checks: {
-            connection: { valid: false, message: "Backend not reachable" }
-          },
-          recommendations: ["Make sure the backend server is running on http://localhost:8000"]
-        });
-      }
-    } catch (error) {
-      setDiagnosticResult({
-        success: false,
-        checks: {
-          connection: { valid: false, message: "Network error" }
-        },
-        recommendations: ["Check if the backend server is running", "Verify your network connection"]
-      });
-    } finally {
-      setRunningDiagnostic(false);
-    }
-  };
+  // Diagnostics removed - backend no longer exists
+  // API key testing is done via the "Test" button on each key
 
   return (
     <div className="space-y-6">
@@ -544,94 +503,6 @@ function APISettings() {
               })}
             </div>
           ) : null}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Configuration Diagnostics</CardTitle>
-              <CardDescription>Check your LLM configuration for issues</CardDescription>
-            </div>
-            <Button 
-              onClick={handleRunDiagnostics} 
-              disabled={runningDiagnostic}
-              variant="outline"
-            >
-              {runningDiagnostic ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Running...
-                </>
-              ) : (
-                "Run Diagnostics"
-              )}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {diagnosticResult && (
-            <div className="space-y-4">
-              {/* Overall Status */}
-              <div className={`p-4 rounded-lg ${diagnosticResult.success ? 'bg-green-50 dark:bg-green-950/20' : 'bg-red-50 dark:bg-red-950/20'}`}>
-                <div className="flex items-center gap-2">
-                  {diagnosticResult.success ? (
-                    <CheckCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
-                  ) : (
-                    <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
-                  )}
-                  <span className="font-medium">
-                    {diagnosticResult.success ? 'All checks passed!' : 'Issues detected'}
-                  </span>
-                </div>
-              </div>
-
-              {/* Individual Checks */}
-              <div className="space-y-2">
-                {Object.entries(diagnosticResult.checks).map(([key, check]: [string, any]) => (
-                  <div key={key} className="flex items-start gap-3 p-3 border rounded-lg">
-                    {check.valid ? (
-                      <CheckCircle className="h-4 w-4 text-green-500 mt-0.5 shrink-0" />
-                    ) : (
-                      <AlertTriangle className="h-4 w-4 text-red-500 mt-0.5 shrink-0" />
-                    )}
-                    <div className="flex-1">
-                      <p className="font-medium text-sm capitalize">{key.replace('_', ' ')}</p>
-                      <p className="text-xs text-muted-foreground">{check.message}</p>
-                      {check.available && check.available.length > 0 && (
-                        <p className="text-xs text-muted-foreground mt-1">
-                          Available models: {check.available.slice(0, 5).join(', ')}
-                          {check.available.length > 5 && ` +${check.available.length - 5} more`}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Recommendations */}
-              {diagnosticResult.recommendations.length > 0 && (
-                <div className="p-4 border rounded-lg bg-blue-50 dark:bg-blue-950/20">
-                  <p className="font-medium text-sm mb-2">Recommendations:</p>
-                  <ul className="space-y-1">
-                    {diagnosticResult.recommendations.map((rec: string, idx: number) => (
-                      <li key={idx} className="text-xs text-muted-foreground flex items-start gap-2">
-                        <span className="text-blue-500">•</span>
-                        {rec}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
-          {!diagnosticResult && !runningDiagnostic && (
-            <p className="text-sm text-muted-foreground text-center py-4">
-              Click "Run Diagnostics" to check your LLM configuration
-            </p>
-          )}
         </CardContent>
       </Card>
 

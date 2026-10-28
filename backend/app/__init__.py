@@ -1,3 +1,0 @@
-"""
-DocuChat Backend Application
-"""

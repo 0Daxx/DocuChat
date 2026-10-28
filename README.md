@@ -1,350 +1,278 @@
-# DocuChat - AI-Powered Question Answering System for Academic Documents
+# DocuChat - AI Document Chat Demo
 
-A full-stack RAG (Retrieval Augmented Generation) application that allows users to upload academic documents (PDF, DOCX, PPTX) and ask questions based on their content using advanced NLP and LLM technologies.
+A pure frontend demo application for chatting with your documents using AI. Upload PDFs, DOCX, or TXT files and get instant answers powered by Groq and Cerebras.
 
-## 🏗️ Architecture
+## 🚀 Features
 
+- **Document Upload**: Upload PDF, DOCX, or TXT files
+- **AI-Powered Chat**: Ask questions about your documents
+- **Multiple LLM Providers**: Support for Groq and Cerebras
+- **Automatic Fallback**: If one API key is exhausted, automatically switches to another
+- **Project Organization**: Group related chats into projects
+- **Shared Documents**: Projects can share documents across multiple chats
+- **Markdown Support**: Full markdown rendering with syntax highlighting
+- **Dark/Light Mode**: Theme toggle with system preference detection
+- **Responsive Design**: Works on mobile, tablet, and desktop
+- **100% Client-Side**: All processing happens in your browser
+
+## 🎯 How It Works
+
+1. **Upload Documents**: Click the paperclip icon in the chat input to upload documents
+2. **Ask Questions**: Type your question in the chat input
+3. **Get Answers**: The AI retrieves relevant chunks from your documents and generates answers
+4. **View Sources**: See which parts of your documents were used to answer your question
+
+## 🔑 API Keys
+
+The application uses 6 API keys (3 for Groq, 3 for Cerebras) with automatic fallback:
+
+- When one API key hits its rate limit, the app automatically switches to the next available key
+- All API keys are stored in environment variables (never exposed in code)
+- Keys are used in rotation to maximize availability
+
+### Environment Variables
+
+Create a `.env` file in the root directory:
+
+```env
+# Groq API Keys (3 keys for automatic fallback)
+VITE_GROQ_API_KEY_1=your_groq_key_1
+VITE_GROQ_API_KEY_2=your_groq_key_2
+VITE_GROQ_API_KEY_3=your_groq_key_3
+
+# Cerebras API Keys (3 keys for automatic fallback)
+VITE_CEREBRAS_API_KEY_1=your_cerebras_key_1
+VITE_CEREBRAS_API_KEY_2=your_cerebras_key_2
+VITE_CEREBRAS_API_KEY_3=your_cerebras_key_3
+
+# Local Provider URLs (optional)
+VITE_LMSTUDIO_DEFAULT_URL=http://localhost:1234/v1
+VITE_LLAMACPP_DEFAULT_URL=http://localhost:8080/v1
 ```
-├── /frontend          # React/TypeScript Frontend
-│   ├── /src
-│   │   ├── /components # ShadCN UI components
-│   │   ├── /lib        # API clients, utilities
-│   │   └── App.tsx
-│   └── package.json
-├── /backend           # FastAPI Backend
-│   ├── /app
-│   │   ├── /nlp        # NLP Pipeline (extract, chunk, embed)
-│   │   ├── /api        # API Routes
-│   │   ├── main.py     # FastAPI app
-│   │   ├── storage.py  # Supabase integration
-│   │   └── llm.py      # LLM generation with fallback
-│   ├── requirements.txt
-│   └── vercel.json
-└── README.md
-```
 
-## ✨ Features
+### Getting API Keys
 
-### Frontend
-- 🎨 Modern UI with ShadCN components
-- 🌓 Dark/Light mode support
-- 📱 Fully responsive design
-- 💬 Real-time chat interface
-- 📄 Document management
-- 🔄 API key fallback system (6 keys)
-- 📝 Markdown rendering with syntax highlighting
+**Groq:**
+1. Go to https://console.groq.com/keys
+2. Sign up / Sign in
+3. Create API keys (create 3 for fallback)
 
-### Backend
-- 📚 Multi-format document support (PDF, DOCX, PPTX)
-- 🔍 Advanced NLP pipeline with semantic chunking
-- 🧠 Vector embeddings using all-MiniLM-L6-v2
-- 💾 Supabase pgvector for efficient similarity search
-- 🤖 Cascading LLM fallback (Groq → Cerebras → Local)
-- 🚀 Vercel serverless deployment ready
+**Cerebras:**
+1. Go to https://cloud.cerebras.ai/
+2. Sign up / Sign in
+3. Create API keys (create 3 for fallback)
 
-## 🚀 Quick Start
+## 🛠️ Tech Stack
 
-### Prerequisites
+- **Frontend**: React 18 + TypeScript
+- **Build Tool**: Vite
+- **Styling**: Tailwind CSS + ShadCN UI
+- **Document Processing**: 
+  - PDF: pdf.js
+  - DOCX: mammoth.js
+  - TXT: Native browser API
+- **Text Chunking**: Custom recursive chunking algorithm
+- **Vector Search**: TF-IDF based retrieval (client-side)
+- **LLM Providers**: Groq, Cerebras (direct API calls)
+- **State Management**: React Context + localStorage
 
-- Node.js 18+ and npm
-- Python 3.10+
-- Supabase account with pgvector extension enabled
-- At least one LLM API key (Groq or Cerebras)
-
-### 1. Clone and Install
+## 📦 Installation
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
-cd docuchat
-
-# Install frontend dependencies
-cd frontend
+# Install dependencies
 npm install
 
-# Install backend dependencies
-cd ../backend
-pip install -r requirements.txt
-```
-
-### 2. Configure Environment Variables
-
-#### Frontend (.env)
-```bash
-cd frontend
-cp .env.example .env
-```
-
-Edit `.env`:
-```env
-VITE_API_URL=http://localhost:8000
-
-# Groq API Keys (3 keys for fallback)
-VITE_GROQ_API_KEY_1=your-groq-key-1
-VITE_GROQ_API_KEY_2=your-groq-key-2
-VITE_GROQ_API_KEY_3=your-groq-key-3
-
-# Cerebras API Keys (3 keys for fallback)
-VITE_CEREBRAS_API_KEY_1=your-cerebras-key-1
-VITE_CEREBRAS_API_KEY_2=your-cerebras-key-2
-VITE_CEREBRAS_API_KEY_3=your-cerebras-key-3
-```
-
-#### Backend (.env)
-```bash
-cd backend
-cp .env.example .env
-```
-
-Edit `.env`:
-```env
-# Supabase Configuration
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-supabase-anon-key
-
-# LLM Providers (at least one required)
-GROQ_API_KEY=your-groq-api-key
-CEREBRAS_API_KEY=your-cerebras-api-key
-
-# Local LLM (optional)
-LOCAL_LLM_URL=http://localhost:1234/v1
-```
-
-### 3. Set Up Supabase Database
-
-1. Create a new Supabase project at https://supabase.com
-2. Enable the `pgvector` extension in SQL Editor:
-   ```sql
-   CREATE EXTENSION IF NOT EXISTS vector;
-   ```
-3. Run the schema from `backend/supabase_schema.sql` in the SQL Editor
-
-### 4. Run the Application
-
-#### Start Backend
-```bash
-cd backend
-uvicorn app.main:app --reload --port 8000
-```
-
-#### Start Frontend
-```bash
-cd frontend
+# Start development server
 npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
 ```
 
-Open http://localhost:5173 in your browser.
+## 🎨 Usage
 
-## 📖 Usage
+### Basic Chat
+1. Click "New chat" in the sidebar
+2. Type your question and press Enter
+3. Get AI-powered answers
 
-### 1. Upload Documents
-- Click the upload button in the chat interface
-- Select PDF, DOCX, or PPTX files
-- Wait for processing (text extraction, chunking, embedding)
+### Document Chat
+1. Click the paperclip icon (📎) in the chat input
+2. Upload PDF, DOCX, or TXT files
+3. Ask questions about your documents
+4. View source citations in responses
 
-### 2. Ask Questions
-- Type your question in the chat input
-- The system will:
-  1. Embed your question
-  2. Search for relevant chunks using cosine similarity
-  3. Generate an answer using the LLM with retrieved context
-  4. Display the answer with source citations
+### Projects
+1. Create a project in the sidebar
+2. Add chats to the project
+3. Upload documents to the project (shared across all project chats)
+4. Organize related conversations
 
-### 3. Manage Documents
-- View all uploaded documents in the sidebar
-- Delete documents when no longer needed
-- Documents persist across sessions
+### Settings
+- **General**: Theme, chat behavior preferences
+- **Usage & Billing**: View usage statistics
+- **API**: Manage API keys, configure fallback behavior
 
-## 🔧 API Endpoints
+## 🔒 Privacy & Security
 
-### POST /api/upload
-Upload and process a document.
+- **100% Client-Side**: All document processing happens in your browser
+- **No Server Storage**: Documents are never uploaded to any server
+- **Local Storage**: All data is stored in your browser's localStorage
+- **API Keys**: Stored in environment variables, never exposed in code
+- **No Tracking**: No analytics or tracking code
 
-**Request:**
+## 🌐 Deployment
+
+### Vercel (Recommended)
+
+1. Push your code to GitHub
+2. Import your repository in Vercel
+3. Add environment variables in Vercel dashboard:
+   - `VITE_GROQ_API_KEY_1`, `VITE_GROQ_API_KEY_2`, `VITE_GROQ_API_KEY_3`
+   - `VITE_CEREBRAS_API_KEY_1`, `VITE_CEREBRAS_API_KEY_2`, `VITE_CEREBRAS_API_KEY_3`
+4. Deploy
+
+### Netlify
+
+1. Push your code to GitHub
+2. Import your repository in Netlify
+3. Add environment variables in Netlify dashboard
+4. Deploy
+
+### Other Platforms
+
+The app is a standard Vite + React application. Deploy to any static hosting platform:
+- GitHub Pages
+- Cloudflare Pages
+- AWS S3 + CloudFront
+- Any static file hosting
+
+## 📊 Architecture
+
 ```
-Content-Type: multipart/form-data
-file: <binary file>
+┌─────────────────────────────────────────────────────────┐
+│                    Frontend (React)                      │
+│                                                          │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
+│  │   Document   │  │    Vector    │  │     Chat     │  │
+│  │   Parser     │  │    Store     │  │   Interface  │  │
+│  │  (PDF/DOCX)  │  │  (TF-IDF)    │  │              │  │
+│  └──────────────┘  └──────────────┘  └──────────────┘  │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │         LLM Provider (Direct API Calls)          │   │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐ │   │
+│  │  │   Groq     │  │  Cerebras  │  │   Local    │ │   │
+│  │  │  (3 keys)  │  │  (3 keys)  │  │  (LM/llama)│ │   │
+│  │  └────────────┘  └────────────┘  └────────────┘ │   │
+│  └──────────────────────────────────────────────────┘   │
+│                                                          │
+│  ┌──────────────────────────────────────────────────┐   │
+│  │              localStorage (Persistence)           │   │
+│  │  - Chat sessions  - Documents  - Preferences     │   │
+│  └──────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────┘
 ```
 
-**Response:**
-```json
-{
-  "document_id": "uuid",
-  "message": "Document processed successfully",
-  "chunk_count": 42
-}
-```
+## 🧪 Testing
 
-### POST /api/ask
-Ask a question about uploaded documents.
-
-**Request:**
-```json
-{
-  "question": "What is the main contribution of this paper?",
-  "document_id": "uuid"  // optional
-}
-```
-
-**Response:**
-```json
-{
-  "answer": "The main contribution is...",
-  "sources": [
-    {
-      "page_number": 3,
-      "chunk_index": 7,
-      "text": "..."
-    }
-  ],
-  "provider": "groq"
-}
-```
-
-### GET /api/documents
-List all uploaded documents.
-
-**Response:**
-```json
-[
-  {
-    "id": "uuid",
-    "name": "paper.pdf",
-    "file_type": "pdf",
-    "chunk_count": 42,
-    "created_at": "2024-01-01T00:00:00Z"
-  }
-]
-```
-
-### DELETE /api/documents/{document_id}
-Delete a document and all its chunks.
-
-## 🧠 NLP Pipeline
-
-### 1. Extraction
-- **PDF**: Uses `pdfplumber` for accurate text extraction with page numbers
-- **DOCX**: Uses `python-docx` for paragraph extraction
-- **PPTX**: Uses `python-pptx` for slide-by-slide extraction
-
-### 2. Cleaning
-- Removes headers, footers, and page numbers
-- Normalizes whitespace
-- Preserves semantic structure
-
-### 3. Chunking
-- Uses `RecursiveCharacterTextSplitter` from LangChain
-- Chunk size: 512 tokens
-- Overlap: 64 tokens
-- Preserves page numbers and chunk indices
-
-### 4. Embedding
-- Model: `all-MiniLM-L6-v2` (384 dimensions)
-- Runs locally on CPU
-- Optimized for semantic similarity
-
-### 5. Storage
-- Vectors stored in Supabase pgvector
-- IVFFlat index for fast similarity search
-- Metadata: document_id, page_number, chunk_index
-
-### 6. Retrieval
-- Cosine similarity search
-- Top-K = 3 chunks by default
-- Optional document filtering
-
-### 7. Generation
-- Cascading fallback: Groq → Cerebras → Local LLM
-- Strict prompting: "Answer only from context"
-- Source attribution included
-
-## 🚢 Deployment
-
-### Frontend (Vercel)
 ```bash
-cd frontend
-vercel --prod
+# Run development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Type check
+npx tsc --noEmit
 ```
 
-Set environment variables in Vercel dashboard:
-- `VITE_API_URL`: Your backend URL
-- All API keys
+## 📝 Supported File Types
 
-### Backend (Vercel Serverless)
-```bash
-cd backend
-vercel --prod
-```
+- **PDF**: Full text extraction with page numbers
+- **DOCX**: Paragraph extraction
+- **TXT**: Plain text files
 
-Set environment variables in Vercel dashboard:
-- `SUPABASE_URL`
-- `SUPABASE_KEY`
-- `GROQ_API_KEY`
-- `CEREBRAS_API_KEY`
-- `LOCAL_LLM_URL` (optional)
+## 🎯 Features in Detail
 
-## 🔒 Security Notes
+### Document Processing
+- **Parsing**: Extract text from PDF, DOCX, TXT
+- **Chunking**: Split documents into semantic chunks (500 chars, 100 char overlap)
+- **Indexing**: Build TF-IDF vector index for fast retrieval
+- **Search**: Cosine similarity search for relevant chunks
 
-- API keys are stored in environment variables
-- CORS is configured to allow all origins (restrict in production)
-- Supabase RLS policies should be configured for multi-user scenarios
-- Never commit `.env` files to version control
+### Chat Features
+- **Streaming Responses**: Real-time token streaming
+- **Source Citations**: See which document chunks were used
+- **Regenerate**: Regenerate responses with one click
+- **Copy**: Copy responses to clipboard
+- **Markdown**: Full markdown support with syntax highlighting
 
-## 📊 Tech Stack
+### Project Management
+- **Create Projects**: Group related chats
+- **Shared Documents**: Documents uploaded to projects are shared across all project chats
+- **Chat Organization**: Attach/detach chats to projects
+- **Visual Indicators**: See which project a chat belongs to
 
-### Frontend
-- React 18 + TypeScript
-- Vite
-- TailwindCSS + ShadCN UI
-- React Router
-- React Markdown
-
-### Backend
-- FastAPI
-- Python 3.10+
-- pdfplumber, python-docx, python-pptx
-- sentence-transformers
-- LangChain (chunking only)
-- Supabase Python client
-- httpx (async HTTP)
-- Mangum (Vercel deployment)
-
-### Database
-- Supabase PostgreSQL
-- pgvector extension
-- IVFFlat indexing
+### API Key Management
+- **Multiple Keys**: Support for multiple API keys per provider
+- **Automatic Fallback**: Switch to next key on rate limit or error
+- **Key Testing**: Test API keys before use
+- **Preferred Key**: Mark one key as preferred per provider
+- **Key Masking**: API keys are masked in the UI for security
 
 ## 🐛 Troubleshooting
 
-### Backend won't start
-- Check Python version: `python --version` (need 3.10+)
-- Ensure all dependencies installed: `pip install -r requirements.txt`
-- Verify `.env` file exists with all required variables
+### "No model configured" error
+- Go to Settings > API
+- Select a provider (Groq or Cerebras)
+- Select a model from the dropdown
+- Save settings
 
-### Embedding model not loading
-- First run downloads the model (~80MB)
-- Ensure internet connection
-- Check disk space
+### "NetworkError" or API errors
+- Check your internet connection
+- Verify API keys are correct in `.env`
+- Check if API keys have hit rate limits
+- Try switching to a different provider
 
-### Supabase connection failed
-- Verify `SUPABASE_URL` and `SUPABASE_KEY` in `.env`
-- Ensure pgvector extension is enabled
-- Check schema was created successfully
+### Documents not uploading
+- Check file type (PDF, DOCX, TXT only)
+- Check file size (large files may take longer)
+- Try a different browser
+- Clear browser cache and localStorage
 
-### LLM generation failed
-- Check API keys are valid
-- Verify internet connection
-- Check LLM provider status pages
-- Try fallback providers
+### Chat not responding
+- Check browser console for errors
+- Verify API keys are configured
+- Try a different LLM provider
+- Check if provider is experiencing issues
 
-## 📝 License
+## 📚 Documentation
 
-MIT
+- [QWEN.md](./QWEN.md) - Project guidelines and specifications
+- [notes.md](./notes.md) - Implementation notes
+- [SETTINGS_REFACTORING.md](./SETTINGS_REFACTORING.md) - Settings page documentation
 
 ## 🤝 Contributing
 
-Contributions welcome! Please open an issue or PR.
+This is a demo application. Contributions welcome!
 
-## 📞 Support
+## 📄 License
 
-For issues and questions, please open a GitHub issue.
+MIT
+
+## 🙏 Acknowledgments
+
+- [Groq](https://groq.com) - Fast LLM inference
+- [Cerebras](https://cerebras.ai) - Wafer-scale inference
+- [ShadCN UI](https://ui.shadcn.com) - Component library
+- [Tailwind CSS](https://tailwindcss.com) - Utility-first CSS
+- [pdf.js](https://mozilla.github.io/pdf.js/) - PDF rendering
+- [mammoth.js](https://github.com/mwilliamson/mammoth.js) - DOCX parsing
+
+---
+
+**Built with ❤️ for demonstrating AI-powered document chat**
