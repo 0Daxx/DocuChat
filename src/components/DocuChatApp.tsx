@@ -326,11 +326,11 @@ export function DocuChatApp() {
     }
 
     // Validate LLM configuration
-    if (!state.llmConfig.model) {
+    if (!state.llmConfig.model || state.llmConfig.model.trim() === "") {
       const errorMessage: ChatMessage = {
         id: generateId(),
         role: "assistant",
-        content: "⚠️ No model configured. Please go to Settings and connect to your LLM provider.",
+        content: `⚠️ **No model configured**\n\nPlease configure your LLM settings:\n\n1. Click the **Settings** icon (⚙️) in the sidebar\n2. Select a provider (Groq or Cerebras)\n3. Click **"Connect & Fetch Models"**\n4. Select a model from the dropdown (or use the default)\n5. Click **Save**\n\nThen try sending your message again.`,
         timestamp: Date.now(),
       };
       const updatedSession: ChatSession = {
@@ -513,6 +513,29 @@ export function DocuChatApp() {
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col min-w-0">
+        {/* Configuration Warning Banner */}
+        {(!state.llmConfig.model || state.llmConfig.model.trim() === "") && (
+          <div className="bg-orange-50 dark:bg-orange-950/20 border-b border-orange-200 dark:border-orange-900 px-4 py-3">
+            <div className="flex items-start gap-3 max-w-3xl mx-auto">
+              <div className="text-orange-600 dark:text-orange-400 mt-0.5">⚠️</div>
+              <div className="flex-1 text-sm">
+                <p className="font-medium text-orange-900 dark:text-orange-200 mb-1">
+                  LLM Not Configured
+                </p>
+                <p className="text-orange-700 dark:text-orange-300 text-xs">
+                  Please configure your LLM provider in Settings to start chatting. 
+                  <button 
+                    onClick={() => setSettingsOpen(true)}
+                    className="underline font-medium ml-1 hover:no-underline"
+                  >
+                    Open Settings →
+                  </button>
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+        
         {activeSession ? (
           <ChatWindow
             session={activeSession}

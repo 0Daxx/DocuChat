@@ -54,11 +54,18 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
       const preferredKey = getPreferredKey(providerId);
       const restoredApiKey = preferredKey?.key || "";
 
+      // Set default model for the provider
+      const defaultModel = providerId === "groq" 
+        ? "llama-3.3-70b-versatile" 
+        : providerId === "cerebras"
+        ? "llama3.1-70b"
+        : "";
+
       const newConfig = {
         ...localConfig,
         provider: providerId,
         baseUrl: provider.defaultBaseUrl,
-        model: "", // Will be populated after fetching models
+        model: defaultModel, // Set default model instead of empty string
         apiKey: restoredApiKey,
       };
       setLocalConfig(newConfig);
@@ -122,6 +129,22 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
   };
 
   const handleSave = () => {
+    // Validate that model is configured
+    if (!localConfig.model || localConfig.model.trim() === "") {
+      setModelError("Please select or enter a model name before saving");
+      return;
+    }
+    
+    // Validate that provider is configured
+    if (!localConfig.provider) {
+      setModelError("Please select a provider before saving");
+      return;
+    }
+    
+    // Clear any previous errors
+    setModelError(null);
+    
+    // Save the configuration
     onSave(localConfig);
     onOpenChange(false);
   };
@@ -231,7 +254,9 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
 
             {/* Model Selection */}
             <div className="space-y-2">
-              <Label>Model</Label>
+              <Label>
+                Model <span className="text-red-500">*</span>
+              </Label>
               {availableModels.length > 0 ? (
                 <Select
                   value={localConfig.model}
@@ -253,17 +278,35 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
                   <Input
                     value={localConfig.model}
                     onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
-                    placeholder={connectionStatus === "error" ? "Connection failed - enter model manually" : "Click 'Connect & Fetch Models' first"}
+                    placeholder={
+                      localConfig.provider === "groq" 
+                        ? "llama-3.3-70b-versatile" 
+                        : localConfig.provider === "cerebras"
+                        ? "llama3.1-70b"
+                        : "Enter model name"
+                    }
                     disabled={isLoadingModels}
+                    className={!localConfig.model ? "border-orange-500" : ""}
                   />
                   {connectionStatus === "idle" && (
                     <p className="text-xs text-muted-foreground">
-                      Click "Connect & Fetch Models" to load available models, or enter a model name manually
+                      💡 Click "Connect & Fetch Models" to load available models, or enter a model name manually. 
+                      A default model is pre-filled for you.
+                    </p>
+                  )}
+                  {connectionStatus === "success" && availableModels.length === 0 && (
+                    <p className="text-xs text-blue-600">
+                      ✓ Connected but no models returned. Using default model or enter manually.
                     </p>
                   )}
                   {connectionStatus === "error" && (
                     <p className="text-xs text-orange-600">
-                      Could not fetch models. You can enter a model name manually or check your API key.
+                      ⚠️ Could not fetch models. A default model is pre-filled. You can change it manually or check your API key.
+                    </p>
+                  )}
+                  {!localConfig.model && (
+                    <p className="text-xs text-red-500 font-medium">
+                      ⚠️ Model is required. Please select or enter a model name.
                     </p>
                   )}
                 </div>
