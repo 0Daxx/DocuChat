@@ -6,7 +6,7 @@ const API_KEY_STORAGE_KEY = "docuchat_api_keys_v2";
 
 const DEFAULT_LLM_CONFIG: LLMConfig = {
   provider: "groq",
-  model: "llama-3.3-70b-versatile", // Default model for Groq
+  model: "qwen/qwen-3.8-27b", // Default model for Groq
   baseUrl: "https://api.groq.com/openai/v1",
   temperature: 0.7,
   maxTokens: 4096,

@@ -209,7 +209,7 @@ async function getFirstAvailableModel(
   } catch (error) {
     console.error(`Failed to get models for ${providerId}:`, error);
     // Return a default model name as fallback
-    return providerId === "groq" ? "llama-3.3-70b-versatile" : "llama3.1-70b";
+    return providerId === "groq" ? "qwen/qwen-3.8-27b" : "qwen-3.8-27b";
   }
 }
 

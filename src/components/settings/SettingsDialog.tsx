@@ -56,9 +56,9 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
 
       // Set default model for the provider
       const defaultModel = providerId === "groq" 
-        ? "llama-3.3-70b-versatile" 
+        ? "qwen/qwen-3.8-27b" 
         : providerId === "cerebras"
-        ? "llama3.1-70b"
+        ? "qwen-3.8-27b"
         : "";
 
       const newConfig = {
@@ -257,60 +257,31 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
               <Label>
                 Model <span className="text-red-500">*</span>
               </Label>
-              {availableModels.length > 0 ? (
-                <Select
-                  value={localConfig.model}
-                  onValueChange={(v) => setLocalConfig({ ...localConfig, model: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a model..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableModels.map((model) => (
-                      <SelectItem key={model} value={model}>
-                        {model}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div className="space-y-2">
-                  <Input
-                    value={localConfig.model}
-                    onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
-                    placeholder={
-                      localConfig.provider === "groq" 
-                        ? "llama-3.3-70b-versatile" 
-                        : localConfig.provider === "cerebras"
-                        ? "llama3.1-70b"
-                        : "Enter model name"
-                    }
-                    disabled={isLoadingModels}
-                    className={!localConfig.model ? "border-orange-500" : ""}
-                  />
-                  {connectionStatus === "idle" && (
-                    <p className="text-xs text-muted-foreground">
-                      💡 Click "Connect & Fetch Models" to load available models, or enter a model name manually. 
-                      A default model is pre-filled for you.
-                    </p>
+              <Select
+                value={localConfig.model}
+                onValueChange={(v) => setLocalConfig({ ...localConfig, model: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a model..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {localConfig.provider === "groq" && (
+                    <>
+                      <SelectItem value="qwen/qwen-3.8-27b">qwen/qwen-3.8-27b</SelectItem>
+                      <SelectItem value="openai/gpt-oss-120b">openai/gpt-oss-120b</SelectItem>
+                    </>
                   )}
-                  {connectionStatus === "success" && availableModels.length === 0 && (
-                    <p className="text-xs text-blue-600">
-                      ✓ Connected but no models returned. Using default model or enter manually.
-                    </p>
+                  {localConfig.provider === "cerebras" && (
+                    <>
+                      <SelectItem value="qwen-3.8-27b">qwen-3.8-27b</SelectItem>
+                      <SelectItem value="gpt-oss-120b">gpt-oss-120b</SelectItem>
+                    </>
                   )}
-                  {connectionStatus === "error" && (
-                    <p className="text-xs text-orange-600">
-                      ⚠️ Could not fetch models. A default model is pre-filled. You can change it manually or check your API key.
-                    </p>
-                  )}
-                  {!localConfig.model && (
-                    <p className="text-xs text-red-500 font-medium">
-                      ⚠️ Model is required. Please select or enter a model name.
-                    </p>
-                  )}
-                </div>
-              )}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Select a model from the list above. Default: {localConfig.provider === "groq" ? "qwen/qwen-3.8-27b" : "qwen-3.8-27b"}
+              </p>
             </div>
 
             {/* Temperature */}
