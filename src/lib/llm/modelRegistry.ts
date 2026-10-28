@@ -18,6 +18,16 @@ export const MODEL_REGISTRY: ModelInfo[] = [
     available: true,
   },
   {
+    id: "openai/gpt-oss-20b",
+    name: "GPT-OSS 20B",
+    provider: "groq",
+    family: "GPT",
+    contextWindow: 128000,
+    capabilities: ["chat", "fast-inference"],
+    recommendedFor: ["Quick responses", "Simple tasks", "Low latency"],
+    available: true,
+  },
+  {
     id: "qwen/qwen3.8-27b",
     name: "Qwen 3.8 27B",
     provider: "groq",
