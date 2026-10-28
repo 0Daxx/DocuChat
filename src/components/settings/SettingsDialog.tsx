@@ -51,15 +51,21 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
     const provider = LLM_PROVIDERS.find(p => p.id === providerId);
     if (provider) {
       // Restore saved API key for this provider if available
-      const isLocal = providerId === "lmstudio" || providerId === "llamacpp";
       const preferredKey = getPreferredKey(providerId);
-      const restoredApiKey = isLocal ? "" : (preferredKey?.key || "");
+      const restoredApiKey = preferredKey?.key || "";
+
+      // Set default model for the provider
+      const defaultModel = providerId === "groq" 
+        ? "qwen/qwen-3.8-27b" 
+        : providerId === "cerebras"
+        ? "qwen-3.8-27b"
+        : "";
 
       const newConfig = {
         ...localConfig,
         provider: providerId,
         baseUrl: provider.defaultBaseUrl,
-        model: "", // Will be populated after fetching models
+        model: defaultModel, // Set default model instead of empty string
         apiKey: restoredApiKey,
       };
       setLocalConfig(newConfig);
@@ -123,12 +129,27 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
   };
 
   const handleSave = () => {
+    // Validate that model is configured
+    if (!localConfig.model || localConfig.model.trim() === "") {
+      setModelError("Please select or enter a model name before saving");
+      return;
+    }
+    
+    // Validate that provider is configured
+    if (!localConfig.provider) {
+      setModelError("Please select a provider before saving");
+      return;
+    }
+    
+    // Clear any previous errors
+    setModelError(null);
+    
+    // Save the configuration
     onSave(localConfig);
     onOpenChange(false);
   };
 
   const currentProvider = LLM_PROVIDERS.find(p => p.id === localConfig.provider);
-  const isLocalProvider = localConfig.provider === "lmstudio" || localConfig.provider === "llamacpp";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -233,41 +254,34 @@ export function SettingsDialog({ open, onOpenChange, config, onSave }: SettingsD
 
             {/* Model Selection */}
             <div className="space-y-2">
-              <Label>Model</Label>
-              {availableModels.length > 0 ? (
-                <Select
-                  value={localConfig.model}
-                  onValueChange={(v) => setLocalConfig({ ...localConfig, model: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a model..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {availableModels.map((model) => (
-                      <SelectItem key={model} value={model}>
-                        {model}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <Input
-                  value={localConfig.model}
-                  onChange={(e) => setLocalConfig({ ...localConfig, model: e.target.value })}
-                  placeholder={isLocalProvider ? "Auto-detected after connecting" : "Model name"}
-                  disabled={isLocalProvider && availableModels.length === 0}
-                />
-              )}
-              {isLocalProvider && availableModels.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Using locally loaded model: <strong>{localConfig.model}</strong>
-                </p>
-              )}
-              {isLocalProvider && availableModels.length === 0 && (
-                <p className="text-xs text-muted-foreground">
-                  Connect to your local server to auto-detect the loaded model.
-                </p>
-              )}
+              <Label>
+                Model <span className="text-red-500">*</span>
+              </Label>
+              <Select
+                value={localConfig.model}
+                onValueChange={(v) => setLocalConfig({ ...localConfig, model: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a model..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {localConfig.provider === "groq" && (
+                    <>
+                      <SelectItem value="qwen/qwen-3.8-27b">qwen/qwen-3.8-27b</SelectItem>
+                      <SelectItem value="openai/gpt-oss-120b">openai/gpt-oss-120b</SelectItem>
+                    </>
+                  )}
+                  {localConfig.provider === "cerebras" && (
+                    <>
+                      <SelectItem value="qwen-3.8-27b">qwen-3.8-27b</SelectItem>
+                      <SelectItem value="gpt-oss-120b">gpt-oss-120b</SelectItem>
+                    </>
+                  )}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Select a model from the list above. Default: {localConfig.provider === "groq" ? "qwen/qwen-3.8-27b" : "qwen-3.8-27b"}
+              </p>
             </div>
 
             {/* Temperature */}

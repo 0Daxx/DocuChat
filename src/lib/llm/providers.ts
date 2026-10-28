@@ -1,13 +1,26 @@
-import type { LLMConfig, LLMProviderOption, LLMProviderType, ChunkSource } from "../types";
-import { loadAPIKeyConfig } from "../storage";
+import type { LLMConfig, LLMProviderType, ChunkSource } from "../types";
+
+/**
+ * Direct LLM API integration for frontend.
+ * Supports Groq and Cerebras with automatic fallback.
+ */
+
+export interface LLMProviderOption {
+  id: LLMProviderType;
+  name: string;
+  description: string;
+  defaultBaseUrl: string;
+  models: string[];
+  requiresApiKey: boolean;
+}
 
 export const LLM_PROVIDERS: LLMProviderOption[] = [
   {
     id: "groq",
     name: "Groq",
-    description: "Fast cloud inference with Llama, Mixtral models",
+    description: "Fast cloud inference with GPT-OSS and Qwen models",
     defaultBaseUrl: "https://api.groq.com/openai/v1",
-    models: [],
+    models: [], // Will be fetched dynamically
     requiresApiKey: true,
   },
   {
@@ -15,106 +28,36 @@ export const LLM_PROVIDERS: LLMProviderOption[] = [
     name: "Cerebras",
     description: "Ultra-fast inference on wafer-scale engines",
     defaultBaseUrl: "https://api.cerebras.ai/v1",
-    models: [],
+    models: [], // Will be fetched dynamically
     requiresApiKey: true,
-  },
-  {
-    id: "lmstudio",
-    name: "LM Studio",
-    description: "Local inference via LM Studio server",
-    defaultBaseUrl: "http://localhost:1234/v1",
-    models: [],
-    requiresApiKey: false,
-  },
-  {
-    id: "llamacpp",
-    name: "llama.cpp",
-    description: "Local inference via llama.cpp server",
-    defaultBaseUrl: "http://localhost:8080/v1",
-    models: [],
-    requiresApiKey: false,
   },
 ];
 
-export function getProviderConfig(providerId: LLMProviderType): LLMProviderOption {
-  const provider = LLM_PROVIDERS.find(p => p.id === providerId);
-  if (!provider) throw new Error(`Unknown provider: ${providerId}`);
-  return provider;
+/**
+ * Get all available API keys from environment variables.
+ * Returns an array of API keys for the specified provider.
+ */
+export function getAvailableApiKeys(provider: LLMProviderType): string[] {
+  const keys: string[] = [];
+  
+  if (provider === "groq") {
+    for (let i = 1; i <= 3; i++) {
+      const key = import.meta.env[`VITE_GROQ_API_KEY_${i}`];
+      if (key) keys.push(key);
+    }
+  } else if (provider === "cerebras") {
+    for (let i = 1; i <= 3; i++) {
+      const key = import.meta.env[`VITE_CEREBRAS_API_KEY_${i}`];
+      if (key) keys.push(key);
+    }
+  }
+  
+  return keys;
 }
 
 /**
- * Fetch available models from the provider's /models endpoint.
- * Returns an array of model IDs.
+ * Build system prompt with context from retrieved chunks.
  */
-export async function fetchAvailableModels(config: LLMConfig): Promise<string[]> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (config.apiKey) {
-    headers["Authorization"] = `Bearer ${config.apiKey}`;
-  }
-
-  const response = await fetch(`${config.baseUrl}/models`, {
-    method: "GET",
-    headers,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
-  }
-
-  const data = await response.json();
-
-  // OpenAI-compatible format: { data: [{ id: "model-name" }, ...] }
-  if (data.data && Array.isArray(data.data)) {
-    return data.data.map((m: any) => m.id).filter(Boolean);
-  }
-
-  // Fallback: some servers return an array directly
-  if (Array.isArray(data)) {
-    return data.map((m: any) => m.id || m.name).filter(Boolean);
-  }
-
-  return [];
-}
-
-/**
- * Test connection to the LLM provider.
- * Returns { success, models } where models is the list of available model IDs.
- */
-export async function testConnection(config: LLMConfig): Promise<{ success: boolean; models: string[] }> {
-  try {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
-    if (config.apiKey) {
-      headers["Authorization"] = `Bearer ${config.apiKey}`;
-    }
-
-    const response = await fetch(`${config.baseUrl}/models`, {
-      method: "GET",
-      headers,
-    });
-
-    if (!response.ok) {
-      return { success: false, models: [] };
-    }
-
-    const data = await response.json();
-    let models: string[] = [];
-
-    if (data.data && Array.isArray(data.data)) {
-      models = data.data.map((m: any) => m.id).filter(Boolean);
-    } else if (Array.isArray(data)) {
-      models = data.map((m: any) => m.id || m.name).filter(Boolean);
-    }
-
-    return { success: true, models };
-  } catch {
-    return { success: false, models: [] };
-  }
-}
-
 function buildSystemPrompt(sources: ChunkSource[]): string {
   if (sources.length === 0) {
     return `You are a helpful AI assistant. Answer questions clearly and accurately. If you don't know something, say so honestly.`;
@@ -137,6 +80,10 @@ ${contextParts}
 === END CONTEXT ===`;
 }
 
+/**
+ * Make a direct API call to an LLM provider with streaming support.
+ * Implements automatic fallback to next API key, then to next provider.
+ */
 export async function streamChatCompletion(
   config: LLMConfig,
   messages: { role: string; content: string }[],
@@ -150,17 +97,143 @@ export async function streamChatCompletion(
     ...messages,
   ];
 
+  // Define provider order for fallback (Groq first, then Cerebras)
+  const providerOrder: LLMProviderType[] = ["groq", "cerebras"];
+  
+  // Start with the configured provider, but allow fallback to others
+  const startIndex = providerOrder.indexOf(config.provider);
+  const providersToTry = [
+    providerOrder[startIndex],
+    ...providerOrder.filter((_, idx) => idx !== startIndex)
+  ];
+
+  let lastError: Error | null = null;
+
+  // Try each provider
+  for (const providerId of providersToTry) {
+    const provider = LLM_PROVIDERS.find(p => p.id === providerId);
+    if (!provider) continue;
+
+    // Get all available API keys for this provider
+    const apiKeys = getAvailableApiKeys(providerId);
+    
+    // If no keys from env, skip this provider
+    if (apiKeys.length === 0) {
+      console.warn(`No API keys available for ${providerId}, skipping...`);
+      continue;
+    }
+
+    // Create a config for this provider
+    const providerConfig: LLMConfig = {
+      ...config,
+      provider: providerId,
+      baseUrl: provider.defaultBaseUrl,
+      // Use the first available model for this provider if current model doesn't exist
+      model: config.model || (await getFirstAvailableModel(providerId, apiKeys[0], provider.defaultBaseUrl)),
+    };
+
+    // Try each API key for this provider
+    for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex++) {
+      const apiKey = apiKeys[keyIndex];
+      
+      try {
+        console.log(`Trying ${providerId} with API key ${keyIndex + 1}/${apiKeys.length}...`);
+        const result = await tryApiCall(
+          providerConfig,
+          apiKey,
+          allMessages,
+          onChunk,
+          signal
+        );
+        
+        // Success! Update the config to use this provider for future calls
+        console.log(`Successfully used ${providerId} with API key ${keyIndex + 1}`);
+        return result;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        // Check if error is retryable (rate limit or server error)
+        const isRetryable = isRetryableError(error);
+        
+        if (!isRetryable) {
+          // Not retryable (auth error, bad request, etc.), try next provider
+          console.warn(`${providerId} API key ${keyIndex + 1} failed with non-retryable error, trying next provider...`);
+          break; // Break out of key loop, try next provider
+        }
+        
+        // Retryable error, try next key
+        if (keyIndex < apiKeys.length - 1) {
+          console.warn(`${providerId} API key ${keyIndex + 1} failed, trying next key...`);
+        } else {
+          console.warn(`All ${providerId} API keys failed, trying next provider...`);
+        }
+      }
+    }
+  }
+
+  // All providers and keys failed
+  throw lastError || new Error("All API keys and providers failed");
+}
+
+/**
+ * Get the first available model for a provider by calling the /models endpoint.
+ */
+async function getFirstAvailableModel(
+  providerId: LLMProviderType,
+  apiKey: string,
+  baseUrl: string
+): Promise<string> {
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    };
+
+    const response = await fetch(`${baseUrl}/models`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch models: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const models = data.data || data;
+    
+    if (Array.isArray(models) && models.length > 0) {
+      return models[0].id || models[0];
+    }
+
+    throw new Error("No models available");
+  } catch (error) {
+    console.error(`Failed to get models for ${providerId}:`, error);
+    // Return a default model name as fallback
+    return providerId === "groq" ? "qwen/qwen-3.8-27b" : "qwen-3.8-27b";
+  }
+}
+
+/**
+ * Try a single API call with the given key.
+ */
+async function tryApiCall(
+  config: LLMConfig,
+  apiKey: string,
+  messages: { role: string; content: string }[],
+  onChunk: (text: string) => void,
+  signal?: AbortSignal
+): Promise<string> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
 
-  if (config.apiKey) {
-    headers["Authorization"] = `Bearer ${config.apiKey}`;
+  if (apiKey) {
+    headers["Authorization"] = `Bearer ${apiKey}`;
   }
 
   const body: Record<string, unknown> = {
     model: config.model,
-    messages: allMessages,
+    messages,
     temperature: config.temperature,
     max_tokens: config.maxTokens,
     stream: true,
@@ -193,20 +266,14 @@ export async function streamChatCompletion(
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split("\n");
-    // Keep the last incomplete line in the buffer
     buffer = lines.pop() || "";
 
     for (const line of lines) {
       const trimmed = line.trim();
-
-      // Skip empty lines
       if (!trimmed) continue;
 
-      // SSE format: "data: {...}" or "data: [DONE]"
-      if (trimmed.startsWith("data:")) {
+      if (trimmed.startsWith("")) {
         const dataStr = trimmed.slice(5).trim();
-
-        // Check for end of stream
         if (dataStr === "[DONE]") continue;
 
         try {
@@ -217,11 +284,9 @@ export async function streamChatCompletion(
             onChunk(delta);
           }
         } catch {
-          // Skip malformed JSON lines
+          // Skip malformed JSON
         }
-      }
-      // Some servers (like llama.cpp) may send non-SSE JSON directly
-      else if (trimmed.startsWith("{")) {
+      } else if (trimmed.startsWith("{")) {
         try {
           const json = JSON.parse(trimmed);
           const delta = json.choices?.[0]?.delta?.content;
@@ -229,14 +294,8 @@ export async function streamChatCompletion(
             fullContent += delta;
             onChunk(delta);
           }
-          // Some servers return content directly
-          const content = json.content;
-          if (content && typeof content === "string") {
-            fullContent += content;
-            onChunk(content);
-          }
         } catch {
-          // Skip malformed lines
+          // Skip malformed JSON
         }
       }
     }
@@ -245,24 +304,66 @@ export async function streamChatCompletion(
   return fullContent;
 }
 
-// Check if an error is retryable (rate limit, server error, etc.)
+/**
+ * Check if an error is retryable (rate limit or server error).
+ */
 export function isRetryableError(error: any): boolean {
   if (!error?.statusCode) return false;
   // 429 = rate limit, 5xx = server errors
   return error.statusCode === 429 || (error.statusCode >= 500 && error.statusCode < 600);
 }
 
-// Get next available API key for fallback
-export function getNextApiKey(provider: string, currentKey: string): string | null {
-  const config = loadAPIKeyConfig();
-  const providerKeys = config.keys.filter(k => k.provider === provider);
-  
-  if (providerKeys.length <= 1) return null;
-  
-  const currentIndex = providerKeys.findIndex(k => k.key === currentKey);
-  if (currentIndex === -1) return providerKeys[0]?.key || null;
-  
-  // Return next key in rotation
-  const nextIndex = (currentIndex + 1) % providerKeys.length;
-  return providerKeys[nextIndex]?.key || null;
+/**
+ * Test connection to the LLM provider.
+ * Returns { success, models } where models is the list of available model IDs.
+ */
+export async function testConnection(config: LLMConfig): Promise<{ success: boolean; models: string[] }> {
+  try {
+    const apiKeys = getAvailableApiKeys(config.provider);
+    const apiKey = apiKeys.length > 0 ? apiKeys[0] : config.apiKey;
+    
+    if (!apiKey) {
+      return { success: false, models: [] };
+    }
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+    if (apiKey) {
+      headers["Authorization"] = `Bearer ${apiKey}`;
+    }
+
+    const response = await fetch(`${config.baseUrl}/models`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!response.ok) {
+      return { success: false, models: [] };
+    }
+
+    const data = await response.json();
+    let models: string[] = [];
+
+    if (data.data && Array.isArray(data.data)) {
+      models = data.data.map((m: any) => m.id).filter(Boolean);
+    } else if (Array.isArray(data)) {
+      models = data.map((m: any) => m.id || m.name).filter(Boolean);
+    }
+
+    return { success: true, models };
+  } catch {
+    return { success: false, models: [] };
+  }
+}
+
+/**
+ * Fetch available models from the provider's /models endpoint.
+ */
+export async function fetchAvailableModels(config: LLMConfig): Promise<string[]> {
+  const result = await testConnection(config);
+  if (!result.success) {
+    throw new Error("Failed to fetch models");
+  }
+  return result.models;
 }
